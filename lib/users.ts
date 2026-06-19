@@ -116,17 +116,30 @@ export async function loadUsers(): Promise<CRMUser[]> {
   return data.map(rowToUser);
 }
 
-// Authentification directe dans Supabase (pas de comparaison client-side)
+// Authentification : Supabase en priorité, fallback sur DEMO_USERS si connexion impossible
 export async function authenticateWithSupabase(email: string, password: string): Promise<CRMUser | null> {
-  const { data, error } = await supabase
-    .from('crm_users')
-    .select('*')
-    .ilike('email', email.trim())
-    .eq('password', password)
-    .eq('status', 'active')
-    .maybeSingle();
-  if (error || !data) return null;
-  return rowToUser(data as Record<string, unknown>);
+  try {
+    const { data, error } = await supabase
+      .from('crm_users')
+      .select('*')
+      .ilike('email', email.trim())
+      .eq('password', password)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    // Si Supabase répond correctement (même avec 0 résultat)
+    if (!error) {
+      return data ? rowToUser(data as Record<string, unknown>) : null;
+    }
+  } catch {
+    // Supabase inaccessible — fallback ci-dessous
+  }
+
+  // Fallback : comptes hardcodés si Supabase est indisponible
+  const normalized = email.trim().toLowerCase();
+  return DEMO_USERS.find(
+    (u) => u.email.toLowerCase() === normalized && u.password === password && u.status === 'active'
+  ) ?? null;
 }
 
 // Migration des utilisateurs depuis localStorage vers Supabase
