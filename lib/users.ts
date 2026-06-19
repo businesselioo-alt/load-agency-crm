@@ -16,7 +16,7 @@ export interface CRMUser {
   id: string;
   firstName: string;
   lastName: string;
-  name: string; // computed: firstName + ' ' + lastName
+  name: string;
   email: string;
   password: string;
   role: UserRole;
@@ -26,12 +26,8 @@ export interface CRMUser {
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
-  admin: 'Admin',
-  manager: 'Manager',
-  chatter: 'Chatter',
-  compta: 'Comptable',
-  marketing: 'Marketing',
-  model: 'Model',
+  admin: 'Admin', manager: 'Manager', chatter: 'Chatter',
+  compta: 'Comptable', marketing: 'Marketing', model: 'Model',
 };
 
 export const ROLE_COLORS: Record<UserRole, { bg: string; text: string; border: string }> = {
@@ -47,33 +43,33 @@ export const MODULE_CONFIG: { key: ModuleKey; label: string; group?: string }[] 
   { key: 'dashboard',      label: 'Dashboard' },
   { key: 'models',         label: 'Models' },
   { key: 'invoices',       label: 'Invoices' },
-  { key: 'marketing_mym',  label: 'Marketing SFS MYM',  group: 'Marketing' },
-  { key: 'marketing_of',   label: 'Marketing SFS OF',   group: 'Marketing' },
+  { key: 'marketing_mym',  label: 'Marketing SFS MYM', group: 'Marketing' },
+  { key: 'marketing_of',   label: 'Marketing SFS OF',  group: 'Marketing' },
   { key: 'chatting',       label: 'Chatting' },
   { key: 'calendar',       label: 'Calendrier' },
   { key: 'settings',       label: 'Paramètres' },
 ];
 
 export const ROLE_DEFAULT_MODULES: Record<UserRole, ModuleKey[]> = {
-  admin:     ['dashboard', 'models', 'invoices', 'marketing_mym', 'marketing_of', 'chatting', 'calendar', 'settings'],
-  manager:   ['dashboard', 'models', 'marketing_mym', 'marketing_of', 'calendar'],
-  chatter:   ['dashboard', 'chatting'],
-  compta:    ['dashboard', 'invoices'],
-  marketing: ['dashboard', 'marketing_mym', 'marketing_of', 'calendar'],
-  model:     ['dashboard', 'models'],
+  admin:     ['dashboard','models','invoices','marketing_mym','marketing_of','chatting','calendar','settings'],
+  manager:   ['dashboard','models','marketing_mym','marketing_of','calendar'],
+  chatter:   ['dashboard','chatting'],
+  compta:    ['dashboard','invoices'],
+  marketing: ['dashboard','marketing_mym','marketing_of','calendar'],
+  model:     ['dashboard','models'],
 };
 
 export const USERS_LS_KEY   = 'crm_users_v1';
 export const SESSION_LS_KEY = 'crm_session_v1';
 
 export const DEMO_USERS: CRMUser[] = [
-  { id: 'u1', firstName: 'Admin',     lastName: '',       name: 'Admin',          email: 'admin@loadagency.com',     password: 'admin123',   role: 'admin',     modules: ['dashboard','models','invoices','marketing_mym','marketing_of','chatting','calendar','settings'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u2', firstName: 'Sadie',     lastName: '',       name: 'Sadie',          email: 'sadie@loadagency.com',     password: 'sadie123',   role: 'manager',   modules: ['dashboard','models','marketing_mym','marketing_of','calendar'],                                 status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u3', firstName: 'Kate',      lastName: '',       name: 'Kate',           email: 'kate@loadagency.com',      password: 'kate123',    role: 'manager',   modules: ['dashboard','models','marketing_mym','marketing_of','calendar'],                                 status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u4', firstName: 'Charlotte', lastName: 'Grace',  name: 'Charlotte Grace',email: 'charlotte@loadagency.com', password: 'model123',   role: 'model',     modules: ['dashboard','models'],                                                                         status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u5', firstName: 'Chatter',   lastName: '',       name: 'Chatter',        email: 'chatter@loadagency.com',   password: 'chatter123', role: 'chatter',   modules: ['dashboard','chatting'],                                                                       status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u6', firstName: 'Comptable', lastName: '',       name: 'Comptable',      email: 'compta@loadagency.com',    password: 'compta123',  role: 'compta',    modules: ['dashboard','invoices'],                                                                       status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u7', firstName: 'Marketing', lastName: '',       name: 'Marketing',      email: 'marketing@loadagency.com', password: 'mkt123',     role: 'marketing', modules: ['dashboard','marketing_mym','marketing_of','calendar'],                                        status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u1', firstName: 'Admin',     lastName: '',      name: 'Admin',           email: 'admin@loadagency.com',     password: 'admin123',   role: 'admin',     modules: ['dashboard','models','invoices','marketing_mym','marketing_of','chatting','calendar','settings'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u2', firstName: 'Sadie',     lastName: '',      name: 'Sadie',           email: 'sadie@loadagency.com',     password: 'sadie123',   role: 'manager',   modules: ['dashboard','models','marketing_mym','marketing_of','calendar'],                                  status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u3', firstName: 'Kate',      lastName: '',      name: 'Kate',            email: 'kate@loadagency.com',      password: 'kate123',    role: 'manager',   modules: ['dashboard','models','marketing_mym','marketing_of','calendar'],                                  status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u4', firstName: 'Charlotte', lastName: 'Grace', name: 'Charlotte Grace', email: 'charlotte@loadagency.com', password: 'model123',   role: 'model',     modules: ['dashboard','models'],                                                                          status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u5', firstName: 'Chatter',   lastName: '',      name: 'Chatter',         email: 'chatter@loadagency.com',   password: 'chatter123', role: 'chatter',   modules: ['dashboard','chatting'],                                                                        status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u6', firstName: 'Comptable', lastName: '',      name: 'Comptable',       email: 'compta@loadagency.com',    password: 'compta123',  role: 'compta',    modules: ['dashboard','invoices'],                                                                        status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u7', firstName: 'Marketing', lastName: '',      name: 'Marketing',       email: 'marketing@loadagency.com', password: 'mkt123',     role: 'marketing', modules: ['dashboard','marketing_mym','marketing_of','calendar'],                                         status: 'active', createdAt: '2026-01-01T00:00:00Z' },
 ];
 
 function rowToUser(row: Record<string, unknown>): CRMUser {
@@ -92,32 +88,17 @@ function rowToUser(row: Record<string, unknown>): CRMUser {
 }
 
 export async function loadUsers(): Promise<CRMUser[]> {
-  const { data, error } = await supabase
-    .from('crm_users')
-    .select('*')
-    .order('created_at');
-
-  if (error) return DEMO_USERS;
-
-  // Table vide → seed avec les comptes par défaut
-  if (!data || data.length === 0) {
-    await supabase.from('crm_users').upsert(
-      DEMO_USERS.map((u) => ({
-        id: u.id, first_name: u.firstName, last_name: u.lastName,
-        name: u.name, email: u.email, password: u.password,
-        role: u.role, modules: u.modules, status: u.status,
-        created_at: u.createdAt,
-      })),
-      { onConflict: 'id' }
-    );
+  try {
+    const { data, error } = await supabase.from('crm_users').select('*').order('created_at');
+    if (error || !data || data.length === 0) return DEMO_USERS;
+    return data.map(rowToUser);
+  } catch {
     return DEMO_USERS;
   }
-
-  return data.map(rowToUser);
 }
 
-// Authentification : Supabase en priorité, fallback sur DEMO_USERS si connexion impossible
 export async function authenticateWithSupabase(email: string, password: string): Promise<CRMUser | null> {
+  const normalized = email.trim().toLowerCase();
   try {
     const { data, error } = await supabase
       .from('crm_users')
@@ -127,22 +108,16 @@ export async function authenticateWithSupabase(email: string, password: string):
       .eq('status', 'active')
       .maybeSingle();
 
-    // Si Supabase répond correctement (même avec 0 résultat)
     if (!error) {
-      return data ? rowToUser(data as Record<string, unknown>) : null;
+      if (data) return rowToUser(data as Record<string, unknown>);
     }
-  } catch {
-    // Supabase inaccessible — fallback ci-dessous
-  }
+  } catch { /* fallback */ }
 
-  // Fallback : comptes hardcodés si Supabase est indisponible
-  const normalized = email.trim().toLowerCase();
   return DEMO_USERS.find(
     (u) => u.email.toLowerCase() === normalized && u.password === password && u.status === 'active'
   ) ?? null;
 }
 
-// Migration des utilisateurs depuis localStorage vers Supabase
 export async function migrateLocalStorageToSupabase(): Promise<void> {
   if (typeof window === 'undefined') return;
   const raw = localStorage.getItem(USERS_LS_KEY);
@@ -156,22 +131,18 @@ export async function migrateLocalStorageToSupabase(): Promise<void> {
 }
 
 export async function saveUser(user: CRMUser): Promise<void> {
-  await supabase.from('crm_users').upsert({
-    id:         user.id,
-    first_name: user.firstName,
-    last_name:  user.lastName,
-    name:       user.name,
-    email:      user.email,
-    password:   user.password,
-    role:       user.role,
-    modules:    user.modules,
-    status:     user.status,
-    created_at: user.createdAt,
-  });
+  try {
+    await supabase.from('crm_users').upsert({
+      id: user.id, first_name: user.firstName, last_name: user.lastName,
+      name: user.name, email: user.email, password: user.password,
+      role: user.role, modules: user.modules, status: user.status,
+      created_at: user.createdAt,
+    });
+  } catch { /* ignore */ }
 }
 
 export async function deleteUserById(id: string): Promise<void> {
-  await supabase.from('crm_users').delete().eq('id', id);
+  try { await supabase.from('crm_users').delete().eq('id', id); } catch { /* ignore */ }
 }
 
 export function authenticateUser(email: string, password: string, users: CRMUser[]): CRMUser | null {
