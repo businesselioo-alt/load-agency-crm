@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, X, Edit2, Trash2, BarChart2 } from 'lucide-react';
+import { Plus, X, Edit2, Trash2, BarChart2, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   DailyEntry, ModelStats, PlatformData, VGPlatform,
@@ -198,8 +198,10 @@ function EditCell({ value, isActive, canEdit, isCurrency = false, currencySym = 
 
 // ─── Platform section ─────────────────────────────────────────────────────────
 
-function PlatformSection({ platform, models, accentColor, canEdit }: {
+function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, syncBadge }: {
   platform: VGPlatform; models: string[]; accentColor: string; canEdit: boolean;
+  refreshKey?: number;
+  syncBadge?: React.ReactNode;
 }) {
   const [data,          setData]          = useState<PlatformData>({});
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
@@ -207,7 +209,7 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
 
   useEffect(() => {
     loadPlatformData(platform, models).then(setData);
-  }, [platform]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [platform, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function persist(d: PlatformData) { setData(d); savePlatformData(platform, d); }
 
@@ -246,7 +248,10 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
         <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: accentColor, boxShadow: `0 0 8px ${accentColor}80` }} />
         <h3 className="font-bold text-[#f0f0f0]">{label}</h3>
         <span className="text-xs text-[#555] bg-white/[0.04] border border-white/[0.08] px-2 py-0.5 rounded-full">{models.length} models</span>
-        {canEdit && <p className="ml-auto text-[11px] text-[#555]">Cliquer une cellule pour modifier</p>}
+        <div className="ml-auto flex items-center gap-3">
+          {syncBadge}
+          {canEdit && <p className="text-[11px] text-[#555]">Cliquer une cellule pour modifier</p>}
+        </div>
       </div>
 
       {/* Table */}
@@ -409,9 +414,79 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+const LAST_SYNC_LS_KEY = 'infloww_last_sync';
+
+function timeSince(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return "à l’instant";
+  if (mins === 1) return 'il y a 1 min';
+  if (mins < 60) return `il y a ${mins} min`;
+  return `il y a ${Math.floor(mins / 60)}h`;
+}
+
 export default function VueGlobale() {
   const { user } = useAuth();
   const canEdit = user?.role === 'admin' || user?.role === 'manager';
+
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastSynced, setLastSynced] = useState<number | null>(null);
+  const [isSyncing,  setIsSyncing]  = useState(false);
+  const [, forceRender] = useState(0);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(LAST_SYNC_LS_KEY);
+    if (stored) setLastSynced(Number(stored));
+    // Refresh "X min ago" text every minute
+    const tick = setInterval(() => forceRender((n) => n + 1), 60_000);
+    return () => clearInterval(tick);
+  }, []);
+
+  // Auto-poll every 5 minutes in background
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        await fetch('/api/cron/sync-infloww');
+        const now = Date.now();
+        setLastSynced(now);
+        localStorage.setItem(LAST_SYNC_LS_KEY, String(now));
+        setRefreshKey((k) => k + 1);
+      } catch { /* silent */ }
+    }, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function syncInfloww() {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      await fetch('/api/cron/sync-infloww');
+      const now = Date.now();
+      setLastSynced(now);
+      localStorage.setItem(LAST_SYNC_LS_KEY, String(now));
+      setRefreshKey((k) => k + 1);
+    } catch { /* ignore */ } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  const syncBadge = (
+    <div className="flex items-center gap-2">
+      {lastSynced && (
+        <span className="text-[11px] text-[#555] flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 opacity-70" />
+          Infloww · {timeSince(lastSynced)}
+        </span>
+      )}
+      <button
+        onClick={syncInfloww}
+        disabled={isSyncing}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border border-[#C9A84C]/30 text-[#C9A84C] hover:bg-[#C9A84C]/[0.10] transition disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <RefreshCw size={10} className={isSyncing ? 'animate-spin' : ''} />
+        {isSyncing ? 'Sync…' : 'Actualiser'}
+      </button>
+    </div>
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -421,7 +496,7 @@ export default function VueGlobale() {
           Saisir <span className="font-medium text-[#C9A84C]">Subs hier</span> et <span className="font-medium text-[#C9A84C]">CA hier</span> chaque jour — les totaux du mois s'accumulent automatiquement
         </p>
       </div>
-      <PlatformSection platform="of"  models={OF_MODELS}  accentColor="#a855f7" canEdit={canEdit} />
+      <PlatformSection platform="of"  models={OF_MODELS}  accentColor="#a855f7" canEdit={canEdit} refreshKey={refreshKey} syncBadge={syncBadge} />
       <PlatformSection platform="mym" models={MYM_MODELS} accentColor="#ec4899" canEdit={canEdit} />
     </div>
   );

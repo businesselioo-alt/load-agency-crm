@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/sync-infloww",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}
