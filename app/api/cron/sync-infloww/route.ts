@@ -13,19 +13,41 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 
-// Infloww/OnlyFans statistics are computed in UTC (UTC+00:00 Monrovia/Reykjavik),
-// so we use plain UTC day boundaries — NOT Paris local time.
+// Infloww dashboard uses Europe/Paris local time for its daily totals.
+// The Vercel cron runs in UTC, so we convert Paris-local midnight→midnight
+// to the correct UTC instants, handling DST (UTC+1 winter, UTC+2 summer).
 interface DateBounds {
-  date: string;      // YYYY-MM-DD UTC
-  start: string;     // 00:00:00.000Z
-  end: string;       // 23:59:59.999Z
+  date: string;   // Paris calendar date YYYY-MM-DD — used as Supabase key
+  start: string;  // UTC ISO = Paris 00:00:00 local
+  end: string;    // UTC ISO = Paris 23:59:59.999 local
 }
 
-function utcDateBounds(offsetDays: number): DateBounds {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + offsetDays);
-  const date = d.toISOString().slice(0, 10);
-  return { date, start: `${date}T00:00:00.000Z`, end: `${date}T23:59:59.999Z` };
+function parisDateBounds(offsetDays: number): DateBounds {
+  const now = new Date();
+
+  // Current calendar date in Paris (sv-SE gives YYYY-MM-DD directly)
+  const todayParis = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Paris' }).format(now);
+  const [y, m, d]  = todayParis.split('-').map(Number);
+
+  // Target date (noon UTC on that day — safe DST pivot point)
+  const targetNoon = new Date(Date.UTC(y, m - 1, d + offsetDays, 12, 0, 0));
+  const date       = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Paris' }).format(targetNoon);
+  const [ty, tm, td] = date.split('-').map(Number);
+
+  // Determine the Paris UTC offset on the target date
+  // "What hour does Paris show when it is 12:00 UTC?"
+  const parisNoon = Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Paris', hour: 'numeric', hour12: false, hourCycle: 'h23',
+    }).format(new Date(Date.UTC(ty, tm - 1, td, 12, 0, 0))),
+  );
+  const offsetHours = parisNoon - 12; // 2 in summer (UTC+2), 1 in winter (UTC+1)
+
+  // Paris 00:00:00 = UTC midnight − offsetHours (JS handles negative hours correctly)
+  const start = new Date(Date.UTC(ty, tm - 1, td,  0 - offsetHours,  0,  0,   0));
+  const end   = new Date(Date.UTC(ty, tm - 1, td, 23 - offsetHours, 59, 59, 999));
+
+  return { date, start: start.toISOString(), end: end.toISOString() };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -59,11 +81,11 @@ export async function GET() {
   const globalTypeCount: Record<string, number> = {};
 
   try {
-    const todayBounds     = utcDateBounds(0);
-    const yesterdayBounds = utcDateBounds(-1);
+    const todayBounds     = parisDateBounds(0);
+    const yesterdayBounds = parisDateBounds(-1);
     const dateBounds      = [todayBounds, yesterdayBounds];
 
-    console.log('[sync] UTC date bounds:', JSON.stringify(dateBounds));
+    console.log('[sync] Paris date bounds:', JSON.stringify(dateBounds));
 
     // ── 1. Resolve creators ────────────────────────────────────────────────
     const { map: creatorsMap, debug: creatorsDebug } = await getConnectedCreators();
@@ -162,7 +184,7 @@ export async function GET() {
       timestamp: new Date().toISOString(),
       debug: {
         globalTypeCount,
-        utcDateBounds: dateBounds,
+        parisDateBounds: dateBounds,
         creatorsFound: creatorsMap.size,
         creatorsDebug,
         models: debugModels,
