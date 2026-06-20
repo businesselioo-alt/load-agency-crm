@@ -78,7 +78,7 @@ export async function GET() {
         const dateDebug: DateDebug = {
           date, startTime, endTime,
           transactionCount: 0, firstRawTransaction: null,
-          sum: { totalInput: 0, excludedPending: 0, includedCount: 0, revenueField: 'none', distinctTypes: {}, distinctStatuses: {}, sampleByType: {} },
+          sum: { totalInput: 0, excludedPending: 0, includedCount: 0, revenueField: 'none', distinctTypes: {}, distinctStatuses: {}, revenueByType: {}, sampleByType: {} },
           computedRevenue: 0, computedNewSubs: 0, supabaseError: null,
         };
 

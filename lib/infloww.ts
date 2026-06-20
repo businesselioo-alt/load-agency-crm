@@ -34,9 +34,6 @@ export interface InflowwTransaction {
   [key: string]: unknown;
 }
 
-// Statuses that mean the transaction hasn't settled yet — exclude from revenue
-const PENDING_STATUSES = new Set(['loading', 'pending', 'processing', 'initiated', 'in_progress']);
-
 // Type values (lowercased) that mean a brand-new subscription
 const NEW_SUB_TYPES = new Set(['subscribe', 'subscription', 'new_subscription', 'newsub', 'new sub']);
 
@@ -226,11 +223,12 @@ export async function getCreatorTransactionsDebug(
 
 export interface SumDebug {
   totalInput: number;
-  excludedPending: number;
+  excludedPending: number;  // always 0 now — kept for API compatibility
   includedCount: number;
   revenueField: string;
   distinctTypes: Record<string, number>;    // type → count
-  distinctStatuses: Record<string, number>; // status → count
+  distinctStatuses: Record<string, number>; // status → count (informational)
+  revenueByType: Record<string, number>;    // type → summed revenue in dollars
   sampleByType: Record<string, unknown>;    // first raw txn per type (shows all fields)
 }
 
@@ -243,7 +241,6 @@ export interface SumResult {
 export function sumTransactions(txns: InflowwTransaction[]): SumResult {
   let revenue = 0;
   let newSubs = 0;
-  let excludedPending = 0;
   let revenueField = 'none';
   const distinctTypes: Record<string, number>    = {};
   const distinctStatuses: Record<string, number> = {};
@@ -252,16 +249,9 @@ export function sumTransactions(txns: InflowwTransaction[]): SumResult {
   for (const t of txns) {
     const raw = t as Record<string, unknown>;
 
-    // Track status distribution (always, before filtering)
+    // Track status distribution (informational only — no exclusion)
     const rawStatus = String(t.status ?? t.state ?? t.transactionStatus ?? '');
-    const status    = rawStatus.toLowerCase();
     if (rawStatus) distinctStatuses[rawStatus] = (distinctStatuses[rawStatus] ?? 0) + 1;
-
-    // Exclude unsettled transactions
-    if (PENDING_STATUSES.has(status)) {
-      excludedPending++;
-      continue;
-    }
 
     // Track type distribution + sample per type
     const rawType = String(t.type ?? t.transactionType ?? t.category ?? '');
@@ -306,8 +296,28 @@ export function sumTransactions(txns: InflowwTransaction[]): SumResult {
     }
   }
 
-  console.log('[infloww] sumTransactions: total=%d excluded=%d included=%d revenue=%.2f newSubs=%d revenueField=%s',
-    txns.length, excludedPending, txns.length - excludedPending, revenue, newSubs, revenueField);
+  // Log per-type revenue breakdown to diagnose which types contribute to total
+  const revenueByType: Record<string, number> = {};
+  for (const t of txns) {
+    const raw     = t as Record<string, unknown>;
+    const rawType = String(t.type ?? t.transactionType ?? t.category ?? 'unknown');
+    const netVal  = raw.net ?? t.netAmount ?? t.net_amount;
+    let amt = 0;
+    if (netVal !== undefined && netVal !== null) {
+      amt = Number(netVal) / 100;
+    } else {
+      const gross  = raw.amount ?? raw.grossAmount ?? raw.gross_amount;
+      const feeVal = raw.fee ?? raw.platformFee ?? raw.platform_fee;
+      if (gross !== undefined) {
+        amt = (Number(gross) - (feeVal !== undefined ? Number(feeVal) : 0)) / 100;
+      }
+    }
+    revenueByType[rawType] = (revenueByType[rawType] ?? 0) + amt;
+  }
+
+  console.log('[infloww] sumTransactions: total=%d revenue=%.2f newSubs=%d revenueField=%s',
+    txns.length, revenue, newSubs, revenueField);
+  console.log('[infloww] revenueByType:', JSON.stringify(revenueByType));
   console.log('[infloww] distinctTypes:', JSON.stringify(distinctTypes));
   console.log('[infloww] distinctStatuses:', JSON.stringify(distinctStatuses));
 
@@ -316,10 +326,11 @@ export function sumTransactions(txns: InflowwTransaction[]): SumResult {
     newSubs,
     debug: {
       totalInput: txns.length,
-      excludedPending,
-      includedCount: txns.length - excludedPending,
+      excludedPending: 0,
+      includedCount: txns.length,
       revenueField,
       distinctTypes,
+      revenueByType,
       distinctStatuses,
       sampleByType,
     },
