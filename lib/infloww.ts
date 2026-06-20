@@ -223,13 +223,14 @@ export async function getCreatorTransactionsDebug(
 
 export interface SumDebug {
   totalInput: number;
-  excludedPending: number;  // always 0 now — kept for API compatibility
+  excludedPending: number;
   includedCount: number;
   revenueField: string;
-  distinctTypes: Record<string, number>;    // type → count
-  distinctStatuses: Record<string, number>; // status → count (informational)
-  revenueByType: Record<string, number>;    // type → summed revenue in dollars
-  sampleByType: Record<string, unknown>;    // first raw txn per type (shows all fields)
+  zeroNetCount: number;     // txns where net=0 → fell back to (amount-fee)/100
+  distinctTypes: Record<string, number>;
+  distinctStatuses: Record<string, number>;
+  revenueByType: Record<string, number>;
+  sampleByType: Record<string, unknown>;
 }
 
 export interface SumResult {
@@ -242,6 +243,7 @@ export function sumTransactions(txns: InflowwTransaction[]): SumResult {
   let revenue = 0;
   let newSubs = 0;
   let revenueField = 'none';
+  let zeroNetCount = 0;
   const distinctTypes: Record<string, number>    = {};
   const distinctStatuses: Record<string, number> = {};
   const sampleByType: Record<string, unknown>    = {};
@@ -262,15 +264,20 @@ export function sumTransactions(txns: InflowwTransaction[]): SumResult {
     }
 
     // ── Revenue (amounts are in cents → divide by 100) ────────────────────
-    // Priority: net (creator take-home) > amount-fee > amount
+    // Priority: net > amount-fee > amount
+    // IMPORTANT: treat net=0 same as absent — "loading" txns have net=0
+    // while amount is already set. Falling back to (amount-fee)/100 avoids
+    // the gap caused by summing 0 for every pending transaction.
     const netVal = raw.net ?? t.netAmount ?? t.net_amount;
-    if (netVal !== undefined && netVal !== null) {
-      revenue += Number(netVal) / 100;
+    const netNum = netVal !== undefined && netVal !== null ? Number(netVal) : null;
+    if (netNum !== null && netNum > 0) {
+      revenue += netNum / 100;
       if (revenueField === 'none') revenueField = 'net/100';
     } else {
+      if (netNum === 0) zeroNetCount++;
       const gross  = raw.amount ?? raw.grossAmount ?? raw.gross_amount;
       const feeVal = raw.fee ?? raw.platformFee ?? raw.platform_fee;
-      if (gross !== undefined) {
+      if (gross !== undefined && Number(gross) > 0) {
         const g = Number(gross);
         const f = feeVal !== undefined ? Number(feeVal) : 0;
         revenue += (g - f) / 100;
@@ -296,27 +303,28 @@ export function sumTransactions(txns: InflowwTransaction[]): SumResult {
     }
   }
 
-  // Log per-type revenue breakdown to diagnose which types contribute to total
+  // Per-type revenue breakdown (same zero-net fallback logic)
   const revenueByType: Record<string, number> = {};
   for (const t of txns) {
     const raw     = t as Record<string, unknown>;
     const rawType = String(t.type ?? t.transactionType ?? t.category ?? 'unknown');
     const netVal  = raw.net ?? t.netAmount ?? t.net_amount;
+    const netNum  = netVal !== undefined && netVal !== null ? Number(netVal) : null;
     let amt = 0;
-    if (netVal !== undefined && netVal !== null) {
-      amt = Number(netVal) / 100;
+    if (netNum !== null && netNum > 0) {
+      amt = netNum / 100;
     } else {
       const gross  = raw.amount ?? raw.grossAmount ?? raw.gross_amount;
       const feeVal = raw.fee ?? raw.platformFee ?? raw.platform_fee;
-      if (gross !== undefined) {
+      if (gross !== undefined && Number(gross) > 0) {
         amt = (Number(gross) - (feeVal !== undefined ? Number(feeVal) : 0)) / 100;
       }
     }
     revenueByType[rawType] = (revenueByType[rawType] ?? 0) + amt;
   }
 
-  console.log('[infloww] sumTransactions: total=%d revenue=%.2f newSubs=%d revenueField=%s',
-    txns.length, revenue, newSubs, revenueField);
+  console.log('[infloww] sumTransactions: total=%d revenue=%.2f newSubs=%d revenueField=%s zeroNetCount=%d',
+    txns.length, revenue, newSubs, revenueField, zeroNetCount);
   console.log('[infloww] revenueByType:', JSON.stringify(revenueByType));
   console.log('[infloww] distinctTypes:', JSON.stringify(distinctTypes));
   console.log('[infloww] distinctStatuses:', JSON.stringify(distinctStatuses));
@@ -329,6 +337,7 @@ export function sumTransactions(txns: InflowwTransaction[]): SumResult {
       excludedPending: 0,
       includedCount: txns.length,
       revenueField,
+      zeroNetCount,
       distinctTypes,
       revenueByType,
       distinctStatuses,
@@ -359,4 +368,66 @@ export async function getCreatorEarningsRange(
     `${endDate}T23:59:59.999Z`,
   );
   return sumTransactions(transactions);
+}
+
+// Fetch refund total for a creator over a time range (in dollars).
+// Infloww docs list GET /v1/refunds — amounts are in cents like transactions.
+export async function getCreatorRefunds(
+  creatorId: number,
+  startTime: string,
+  endTime: string,
+): Promise<{ total: number; count: number; rawFirst: unknown }> {
+  const all: Record<string, unknown>[] = [];
+  let cursor: string | undefined;
+
+  try {
+    do {
+      const params = new URLSearchParams({
+        creatorId: String(creatorId),
+        platformCode: 'OnlyFans',
+        startTime,
+        endTime,
+        limit: '100',
+      });
+      if (cursor) params.set('cursor', cursor);
+      const url = `${BASE}/refunds?${params}`;
+      console.log('[infloww] GET', url);
+
+      const res = await fetch(url, { headers: inflowwHeaders(), cache: 'no-store' });
+      console.log('[infloww] refunds status:', res.status);
+      if (!res.ok) { console.log('[infloww] refunds error:', await res.text()); break; }
+
+      const json: Record<string, unknown> = await res.json();
+      const rd = json.data as Record<string, unknown> | undefined;
+      let list: Record<string, unknown>[] = [];
+      if (Array.isArray(rd?.list))      { list = rd!.list as Record<string, unknown>[]; }
+      else if (Array.isArray(json.data)){ list = json.data as Record<string, unknown>[]; }
+      else if (Array.isArray(json.list)){ list = json.list as Record<string, unknown>[]; }
+      all.push(...list);
+
+      const hasMore    = json.hasMore ?? rd?.hasMore;
+      const nextCursor = json.cursor  ?? rd?.cursor;
+      cursor = hasMore ? String(nextCursor ?? '') || undefined : undefined;
+    } while (cursor);
+  } catch (e) {
+    console.log('[infloww] getCreatorRefunds exception:', e);
+  }
+
+  // Sum refund amounts (same logic as transactions: net > amount-fee > amount, ÷100)
+  let total = 0;
+  for (const r of all) {
+    const netVal = r.net ?? r.netAmount ?? r.net_amount;
+    const netNum = netVal !== undefined && netVal !== null ? Number(netVal) : null;
+    if (netNum !== null && netNum > 0) {
+      total += netNum / 100;
+    } else {
+      const gross  = r.amount ?? r.grossAmount;
+      const feeVal = r.fee ?? r.platformFee;
+      if (gross !== undefined && Number(gross) > 0) {
+        total += (Number(gross) - (feeVal !== undefined ? Number(feeVal) : 0)) / 100;
+      }
+    }
+  }
+
+  return { total, count: all.length, rawFirst: all[0] ?? null };
 }

@@ -5,6 +5,7 @@ import {
   getConnectedCreators,
   getCreatorTransactionsDebug,
   sumTransactions,
+  getCreatorRefunds,
   type SumDebug,
 } from '@/lib/infloww';
 
@@ -61,6 +62,8 @@ interface DateDebug {
   sum: SumDebug;
   computedRevenue: number;
   computedNewSubs: number;
+  refundTotal: number;       // gross refund amount for this day (informational)
+  refundCount: number;
   supabaseError: string | null;
 }
 
@@ -79,6 +82,7 @@ export async function GET() {
   const errors: string[]          = [];
   const debugModels: ModelDebug[] = [];
   const globalTypeCount: Record<string, number> = {};
+  const totals: Record<string, number> = {}; // date → summed revenue across all models
 
   try {
     const todayBounds     = parisDateBounds(0);
@@ -112,8 +116,8 @@ export async function GET() {
         const dateDebug: DateDebug = {
           date, startTime, endTime,
           transactionCount: 0, firstRawTransaction: null,
-          sum: { totalInput: 0, excludedPending: 0, includedCount: 0, revenueField: 'none', distinctTypes: {}, distinctStatuses: {}, revenueByType: {}, sampleByType: {} },
-          computedRevenue: 0, computedNewSubs: 0, supabaseError: null,
+          sum: { totalInput: 0, excludedPending: 0, includedCount: 0, revenueField: 'none', zeroNetCount: 0, distinctTypes: {}, distinctStatuses: {}, revenueByType: {}, sampleByType: {} },
+          computedRevenue: 0, computedNewSubs: 0, refundTotal: 0, refundCount: 0, supabaseError: null,
         };
 
         try {
@@ -132,8 +136,17 @@ export async function GET() {
           for (const [type, count] of Object.entries(sumDbg.distinctTypes)) {
             globalTypeCount[type] = (globalTypeCount[type] ?? 0) + count;
           }
+          totals[date] = (totals[date] ?? 0) + revenue;
 
-          console.log(`[sync] ${modelName} ${date}: ${transactions.length} txns → $${revenue.toFixed(2)} / ${newSubs} newSubs`);
+          // Fetch refunds for this model/date (informational — not subtracted from revenue)
+          const refunds = await getCreatorRefunds(creatorId, startTime, endTime);
+          dateDebug.refundTotal = refunds.total;
+          dateDebug.refundCount = refunds.count;
+          if (refunds.count > 0) {
+            console.log(`[sync] ${modelName} ${date}: ${refunds.count} refunds totalling $${refunds.total.toFixed(2)}`);
+          }
+
+          console.log(`[sync] ${modelName} ${date}: ${transactions.length} txns → $${revenue.toFixed(2)} (zeroNet:${sumDbg.zeroNetCount}) / ${newSubs} newSubs`);
 
           const { data: existing } = await supabase
             .from('vg_daily_entries')
@@ -177,16 +190,31 @@ export async function GET() {
     }
 
     console.log('[sync] globalTypeCount:', JSON.stringify(globalTypeCount));
+    console.log('[sync] totals by date:', JSON.stringify(totals));
+
+    // Confirm what's actually in Supabase for both dates after all upserts
+    const { data: supabaseEntries } = await supabase
+      .from('vg_daily_entries')
+      .select('model_name, date, revenue, new_subs, note')
+      .eq('platform', 'of')
+      .in('date', dateBounds.map((b) => b.date))
+      .order('date')
+      .order('model_name');
 
     return NextResponse.json({
       synced,
       errors,
       timestamp: new Date().toISOString(),
       debug: {
+        // Quick summary for validation
+        revenueTotalByDate: totals,
+        // Full detail
         globalTypeCount,
         parisDateBounds: dateBounds,
         creatorsFound: creatorsMap.size,
         creatorsDebug,
+        // Supabase ground truth — confirms today's entries exist and what was written
+        supabaseEntriesForSyncedDates: supabaseEntries ?? [],
         models: debugModels,
       },
     });
