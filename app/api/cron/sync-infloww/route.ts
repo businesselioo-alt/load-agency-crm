@@ -5,6 +5,7 @@ import {
   getConnectedCreators,
   getCreatorTransactionsDebug,
   sumTransactions,
+  type SumDebug,
 } from '@/lib/infloww';
 
 const supabase = createClient(
@@ -24,6 +25,7 @@ interface DateDebug {
   endTime: string;
   transactionCount: number;
   firstRawTransaction: unknown;
+  sum: SumDebug;
   computedRevenue: number;
   computedNewSubs: number;
   supabaseError: string | null;
@@ -38,22 +40,21 @@ interface ModelDebug {
 }
 
 export async function GET() {
-  const synced: string[]     = [];
-  const errors: string[]     = [];
+  const synced: string[]          = [];
+  const errors: string[]          = [];
   const debugModels: ModelDebug[] = [];
 
   try {
     const today     = utcDate(0);
     const yesterday = utcDate(-1);
-    const dates = [today, yesterday];
+    const dates     = [today, yesterday];
     console.log('[sync] UTC dates to sync:', dates);
 
     // ── 1. Resolve creators ──────────────────────────────────────────────────
     const { map: creatorsMap, debug: creatorsDebug } = await getConnectedCreators();
-
     console.log('[sync] creatorsMap size:', creatorsMap.size);
     console.log('[sync] creatorsMap entries:', JSON.stringify([...creatorsMap.entries()]));
-    console.log('[sync] INFLOWW_OF_MAPPING userNames we need:', Object.values(INFLOWW_OF_MAPPING));
+    console.log('[sync] userNames needed:', Object.values(INFLOWW_OF_MAPPING));
 
     // ── 2. Per-model sync ────────────────────────────────────────────────────
     for (const [modelName, userName] of Object.entries(INFLOWW_OF_MAPPING)) {
@@ -63,7 +64,7 @@ export async function GET() {
       const modelDebug: ModelDebug = { model: modelName, userName, creatorId, dates: [] };
 
       if (!creatorId) {
-        const msg = `${modelName}: "${userName}" not found in Infloww creators map`;
+        const msg = `${modelName}: "${userName}" not found in Infloww`;
         errors.push(msg);
         modelDebug.error = msg;
         debugModels.push(modelDebug);
@@ -73,9 +74,11 @@ export async function GET() {
       for (const date of dates) {
         const startTime = `${date}T00:00:00.000Z`;
         const endTime   = `${date}T23:59:59.999Z`;
+
         const dateDebug: DateDebug = {
           date, startTime, endTime,
           transactionCount: 0, firstRawTransaction: null,
+          sum: { totalInput: 0, excludedPending: 0, includedCount: 0, revenueField: 'none', distinctTypes: {}, distinctStatuses: {}, sampleByType: {} },
           computedRevenue: 0, computedNewSubs: 0, supabaseError: null,
         };
 
@@ -87,13 +90,14 @@ export async function GET() {
           dateDebug.transactionCount    = txDebug.totalCount;
           dateDebug.firstRawTransaction = txDebug.firstRawTransaction;
 
-          const { revenue, newSubs } = sumTransactions(transactions);
+          const { revenue, newSubs, debug: sumDbg } = sumTransactions(transactions);
+          dateDebug.sum            = sumDbg;
           dateDebug.computedRevenue  = revenue;
           dateDebug.computedNewSubs  = newSubs;
 
-          console.log(`[sync] ${modelName} ${date}: ${transactions.length} txns → revenue=${revenue} newSubs=${newSubs}`);
+          console.log(`[sync] ${modelName} ${date}: ${transactions.length} txns → revenue=$${revenue.toFixed(2)} newSubs=${newSubs}`);
 
-          // Preserve existing new_subs if Infloww has no subscription data
+          // Preserve existing new_subs if Infloww has no sub data
           const { data: existing } = await supabase
             .from('vg_daily_entries')
             .select('new_subs')
@@ -122,7 +126,7 @@ export async function GET() {
             errors.push(`${modelName} ${date}: ${error.message}`);
             console.log(`[sync] supabase error ${modelName} ${date}:`, error.message);
           } else {
-            synced.push(`${modelName} ${date}: $${revenue.toFixed(2)}`);
+            synced.push(`${modelName} ${date}: $${revenue.toFixed(2)} / ${finalNewSubs} subs`);
           }
         } catch (e) {
           const msg = String(e);
