@@ -136,12 +136,15 @@ export async function getConnectedCreators(): Promise<{ map: Map<string, number>
 // ─── Transactions ─────────────────────────────────────────────────────────────
 
 export interface TransactionsDebug {
-  url: string;
-  status: number;
+  url: string;           // exact URL sent (including all query params)
+  status: number;        // HTTP status of first request
+  httpErrorBody: string | null;   // full raw body when status !== 2xx
+  rawFirstPageFull: unknown;      // complete first-page JSON (not just keys)
   rawFirstPageKeys: string[];
   listPath: string;
   totalCount: number;
   firstRawTransaction: unknown;
+  exception: string | null;       // stringified exception if fetch threw
 }
 
 export async function getCreatorTransactionsDebug(
@@ -155,6 +158,8 @@ export async function getCreatorTransactionsDebug(
   let listPath = 'unknown';
   let firstStatus = 0;
   let firstUrl = '';
+  let httpErrorBody: string | null = null;
+  let exceptionStr: string | null = null;
 
   try {
     do {
@@ -173,14 +178,16 @@ export async function getCreatorTransactionsDebug(
       const res = await fetch(url, { headers: inflowwHeaders(), cache: 'no-store' });
       if (!firstStatus) firstStatus = res.status;
       console.log('[infloww] transactions status:', res.status);
+
       if (!res.ok) {
-        console.log('[infloww] transactions error body:', await res.text());
-        break;
+        httpErrorBody = await res.text();
+        console.log('[infloww] transactions error body:', httpErrorBody);
+        break;  // stop pagination on error
       }
 
       const json: Record<string, unknown> = await res.json();
       if (!firstPageRaw) firstPageRaw = json;
-      console.log('[infloww] transactions raw top-level keys:', Object.keys(json));
+      console.log('[infloww] transactions raw first-page:', JSON.stringify(json).slice(0, 500));
 
       const td = json.data as Record<string, unknown> | undefined;
       let list: InflowwTransaction[] = [];
@@ -203,6 +210,7 @@ export async function getCreatorTransactionsDebug(
       cursor = hasMore ? String(nextCursor ?? '') || undefined : undefined;
     } while (cursor);
   } catch (e) {
+    exceptionStr = String(e);
     console.log('[infloww] getCreatorTransactions exception:', e);
   }
 
@@ -211,10 +219,13 @@ export async function getCreatorTransactionsDebug(
     debug: {
       url: firstUrl,
       status: firstStatus,
+      httpErrorBody,
+      rawFirstPageFull: firstPageRaw,   // full JSON — shows exact API response shape
       rawFirstPageKeys: firstPageRaw ? Object.keys(firstPageRaw) : [],
       listPath,
       totalCount: all.length,
       firstRawTransaction: all[0] ?? null,
+      exception: exceptionStr,
     },
   };
 }

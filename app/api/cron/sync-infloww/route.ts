@@ -87,9 +87,15 @@ export async function GET() {
   try {
     const todayBounds     = parisDateBounds(0);
     const yesterdayBounds = parisDateBounds(-1);
-    const dateBounds      = [todayBounds, yesterdayBounds];
 
-    console.log('[sync] Paris date bounds:', JSON.stringify(dateBounds));
+    // Cap today's endTime to right now — some APIs reject endTime > now with 400/422.
+    // This was causing 0 transactions for "today" (endTime was Paris midnight = ~6h future).
+    const nowISO = new Date().toISOString();
+    if (todayBounds.end > nowISO) todayBounds.end = nowISO;
+
+    const dateBounds = [todayBounds, yesterdayBounds];
+
+    console.log('[sync] Paris date bounds (today end capped to now):', JSON.stringify(dateBounds));
 
     // ── 1. Resolve creators ────────────────────────────────────────────────
     const { map: creatorsMap, debug: creatorsDebug } = await getConnectedCreators();
@@ -127,6 +133,14 @@ export async function GET() {
 
           dateDebug.transactionCount    = txDebug.totalCount;
           dateDebug.firstRawTransaction = txDebug.firstRawTransaction;
+
+          // Surface API-level errors — previously swallowed silently
+          if (txDebug.httpErrorBody !== null) {
+            errors.push(`${modelName} ${date}: HTTP ${txDebug.status} — ${txDebug.httpErrorBody.slice(0, 200)}`);
+          }
+          if (txDebug.exception !== null) {
+            errors.push(`${modelName} ${date}: exception — ${txDebug.exception}`);
+          }
 
           const { revenue, newSubs, debug: sumDbg } = sumTransactions(transactions);
           dateDebug.sum             = sumDbg;
@@ -192,6 +206,26 @@ export async function GET() {
     console.log('[sync] globalTypeCount:', JSON.stringify(globalTypeCount));
     console.log('[sync] totals by date:', JSON.stringify(totals));
 
+    // ── Wide-window sanity test: last 48h for Lou ──────────────────────────
+    // If today's narrow window returns 0 txns, this broader window will tell
+    // us whether the API has ANY data for today or whether it's a connection issue.
+    const louId = creatorsMap.get('louvalmont');
+    let wideWindowTest: unknown = null;
+    if (louId) {
+      const wideStart = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+      const wideEnd   = new Date().toISOString();
+      const { debug: wideDbg } = await getCreatorTransactionsDebug(louId, wideStart, wideEnd);
+      wideWindowTest = {
+        creatorId: louId, wideStart, wideEnd,
+        totalCount: wideDbg.totalCount,
+        status: wideDbg.status,
+        httpErrorBody: wideDbg.httpErrorBody,
+        rawFirstPageFull: wideDbg.rawFirstPageFull,
+        exception: wideDbg.exception,
+      };
+      console.log('[sync] wide-window test (Lou, 48h):', JSON.stringify(wideWindowTest));
+    }
+
     // Confirm what's actually in Supabase for both dates after all upserts
     const { data: supabaseEntries } = await supabase
       .from('vg_daily_entries')
@@ -215,6 +249,8 @@ export async function GET() {
         creatorsDebug,
         // Supabase ground truth — confirms today's entries exist and what was written
         supabaseEntriesForSyncedDates: supabaseEntries ?? [],
+        // 48h wide-window test for Lou — isolates date-boundary vs auth issues
+        wideWindowTest,
         models: debugModels,
       },
     });
