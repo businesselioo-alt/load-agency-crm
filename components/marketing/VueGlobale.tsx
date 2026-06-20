@@ -44,30 +44,30 @@ function EntryModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
-      <div className="bg-[#111] border border-[#222] rounded-xl shadow-2xl p-6 w-80 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-[#111] border border-white/[0.08] rounded-xl shadow-2xl p-6 w-80 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-white text-sm">{initial ? "Modifier l'entrée" : 'Nouvelle entrée'}</h3>
-          <button onClick={onClose} className="text-[#555] hover:text-white transition"><X size={16} /></button>
+          <h3 className="font-semibold text-[#f0f0f0] text-sm">{initial ? "Modifier l'entrée" : 'Nouvelle entrée'}</h3>
+          <button onClick={onClose} className="text-[#555] hover:text-[#f0f0f0] transition"><X size={16} /></button>
         </div>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[#888]">Date</span>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-[#1a1a1a] border border-[#333] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C] w-full" />
+          <span className="text-xs font-medium text-[#999]">Date</span>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-white/[0.04] border border-white/[0.08] text-[#f0f0f0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/20 focus:border-[#C9A84C] hover:border-[#C9A84C]/30 w-full transition" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[#888]">Nouveaux abonnés</span>
-          <input type="number" min="0" value={subs} onChange={(e) => setSubs(e.target.value)} className="bg-[#1a1a1a] border border-[#333] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C] w-full" />
+          <span className="text-xs font-medium text-[#999]">Nouveaux abonnés</span>
+          <input type="number" min="0" value={subs} onChange={(e) => setSubs(e.target.value)} className="bg-white/[0.04] border border-white/[0.08] text-[#f0f0f0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/20 focus:border-[#C9A84C] hover:border-[#C9A84C]/30 w-full transition" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[#888]">CA ({currencySym})</span>
-          <input type="number" min="0" step="0.01" value={rev} onChange={(e) => setRev(e.target.value)} placeholder="0.00" className="bg-[#1a1a1a] border border-[#333] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C] w-full" />
+          <span className="text-xs font-medium text-[#999]">CA ({currencySym})</span>
+          <input type="number" min="0" step="0.01" value={rev} onChange={(e) => setRev(e.target.value)} placeholder="0.00" className="bg-white/[0.04] border border-white/[0.08] text-[#f0f0f0] placeholder-[#555] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/20 focus:border-[#C9A84C] hover:border-[#C9A84C]/30 w-full transition" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[#888]">Note</span>
-          <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optionnel" className="bg-[#1a1a1a] border border-[#333] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C] w-full" />
+          <span className="text-xs font-medium text-[#999]">Note</span>
+          <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optionnel" className="bg-white/[0.04] border border-white/[0.08] text-[#f0f0f0] placeholder-[#555] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/20 focus:border-[#C9A84C] hover:border-[#C9A84C]/30 w-full transition" />
         </label>
         <div className="flex gap-2 pt-1">
-          <button onClick={onClose}    className="flex-1 py-2 rounded-xl border border-[#333] text-sm text-[#888] hover:bg-[#1a1a1a] transition">Annuler</button>
-          <button onClick={handleSave} className="flex-1 py-2 rounded-xl bg-[#C9A84C] text-black text-sm font-medium hover:bg-[#E2C06A] transition">Enregistrer</button>
+          <button onClick={onClose}    className="flex-1 py-2 rounded-xl border border-white/[0.08] text-sm text-[#999] hover:bg-white/[0.04] hover:border-[#C9A84C]/30 transition">Annuler</button>
+          <button onClick={handleSave} className="flex-1 py-2 rounded-xl bg-[#C9A84C] text-black text-sm font-semibold hover:bg-[#E2C06A] transition" style={{ boxShadow: '0 4px 14px rgba(201,168,76,0.40)' }}>Enregistrer</button>
         </div>
       </div>
     </div>
@@ -94,23 +94,23 @@ function SidePanel({ modelName, stats, canEdit, currencySym, onClose, onUpdate }
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="fixed top-0 right-0 h-full w-96 z-50 bg-[#111] border-l border-[#222] shadow-2xl flex flex-col">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-[#222]">
-          <div className="w-8 h-8 rounded-full bg-[#C9A84C]/10 flex items-center justify-center flex-shrink-0">
+      <div className="fixed top-0 right-0 h-full w-96 z-50 bg-[#111] border-l border-white/[0.08] shadow-2xl flex flex-col">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.08]">
+          <div className="w-8 h-8 rounded-full bg-[#C9A84C]/10 border border-[#C9A84C]/20 flex items-center justify-center flex-shrink-0">
             <span className="text-[#C9A84C] text-xs font-bold">{modelName.charAt(0).toUpperCase()}</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-white text-sm truncate">{modelName}</p>
-            <p className="text-xs text-[#888]">Historique des entrées</p>
+            <p className="font-semibold text-[#f0f0f0] text-sm truncate">{modelName}</p>
+            <p className="text-xs text-[#999]">Historique des entrées</p>
           </div>
-          <button onClick={onClose} className="text-[#555] hover:text-white transition"><X size={18} /></button>
+          <button onClick={onClose} className="text-[#555] hover:text-[#f0f0f0] transition"><X size={18} /></button>
         </div>
 
         {canEdit && (
-          <div className="px-4 py-3 border-b border-[#1a1a1a]">
+          <div className="px-4 py-3 border-b border-white/[0.05]">
             <button
               onClick={() => setEntryModal('new')}
-              className="flex items-center justify-center gap-2 w-full py-2 rounded-xl border border-dashed border-[#C9A84C]/30 text-[#C9A84C] text-sm font-medium hover:bg-[#C9A84C]/5 transition"
+              className="flex items-center justify-center gap-2 w-full py-2 rounded-xl border border-dashed border-[#C9A84C]/40 text-[#C9A84C] text-sm font-medium hover:bg-[#C9A84C]/[0.07] transition"
             >
               <Plus size={14} /> Ajouter une entrée
             </button>
@@ -120,21 +120,21 @@ function SidePanel({ modelName, stats, canEdit, currencySym, onClose, onUpdate }
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {sorted.length === 0 && <div className="text-center py-12 text-[#555] text-sm">Aucune entrée</div>}
           {sorted.map((entry) => (
-            <div key={entry.id} className="rounded-xl border border-[#222] bg-[#0f0f0f] p-3">
+            <div key={entry.id} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 hover:border-[#C9A84C]/25 transition">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-[#888]">
+                <span className="text-xs font-semibold text-[#999]">
                   {new Date(entry.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
                 </span>
                 {canEdit && (
                   <div className="flex gap-1">
-                    <button onClick={() => setEntryModal(entry)} className="text-[#444] hover:text-[#C9A84C] transition p-0.5"><Edit2 size={12} /></button>
-                    <button onClick={() => onUpdate({ ...stats, entries: stats.entries.filter((e) => e.id !== entry.id) })} className="text-[#444] hover:text-red-400 transition p-0.5"><Trash2 size={12} /></button>
+                    <button onClick={() => setEntryModal(entry)} className="text-[#555] hover:text-[#C9A84C] transition p-0.5"><Edit2 size={12} /></button>
+                    <button onClick={() => onUpdate({ ...stats, entries: stats.entries.filter((e) => e.id !== entry.id) })} className="text-[#555] hover:text-red-400 transition p-0.5"><Trash2 size={12} /></button>
                   </div>
                 )}
               </div>
               <div className="flex gap-4">
-                <span className="text-xs text-[#888]"><span className="font-semibold text-white">{fmtCA(entry.revenue, currencySym)}</span> CA</span>
-                <span className="text-xs text-[#888]"><span className="font-semibold text-white">+{entry.newSubs}</span> subs</span>
+                <span className="text-xs text-[#999]"><span className="font-semibold text-[#f0f0f0]">{fmtCA(entry.revenue, currencySym)}</span> CA</span>
+                <span className="text-xs text-[#999]"><span className="font-semibold text-[#f0f0f0]">+{entry.newSubs}</span> subs</span>
               </div>
               {entry.note && <p className="text-xs text-[#555] mt-1 italic">{entry.note}</p>}
             </div>
@@ -180,7 +180,7 @@ function EditCell({ value, isActive, canEdit, isCurrency = false, currencySym = 
           if (e.key === 'Enter')  { (e.target as HTMLInputElement).blur(); }
           if (e.key === 'Escape') onCancel();
         }}
-        className="w-full bg-[#1a1a1a] border border-[#C9A84C]/50 rounded-lg px-2 py-1 text-xs text-white text-right focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/20"
+        className="w-full bg-white/[0.06] border border-[#C9A84C]/50 rounded-lg px-2 py-1 text-xs text-[#f0f0f0] text-right focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/20"
       />
     );
   }
@@ -188,8 +188,8 @@ function EditCell({ value, isActive, canEdit, isCurrency = false, currencySym = 
   return (
     <span
       onClick={canEdit ? onActivate : undefined}
-      className={`block text-right text-sm text-[#888] rounded-md px-1 py-0.5 -mx-1 transition-colors
-        ${canEdit ? 'cursor-pointer hover:bg-[#C9A84C]/10 hover:text-[#C9A84C]' : ''}`}
+      className={`block text-right text-sm text-[#999] rounded-md px-1 py-0.5 -mx-1 transition-colors
+        ${canEdit ? 'cursor-pointer hover:bg-[#C9A84C]/[0.10] hover:text-[#C9A84C]' : ''}`}
     >
       {isCurrency ? fmtCA(value, currencySym) : fmtN(value)}
     </span>
@@ -240,12 +240,12 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
   const currencySym  = platform === 'of' ? '$' : '€';
 
   return (
-    <div className="bg-[#111] rounded-xl border border-[#222] overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+    <div className="bg-[#111] rounded-xl border border-white/[0.08] overflow-hidden" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.6)' }}>
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-[#222]">
-        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: accentColor }} />
-        <h3 className="font-bold text-white">{label}</h3>
-        <span className="text-xs text-[#555] bg-[#1a1a1a] border border-[#333] px-2 py-0.5 rounded-full">{models.length} models</span>
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.08]">
+        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: accentColor, boxShadow: `0 0 8px ${accentColor}80` }} />
+        <h3 className="font-bold text-[#f0f0f0]">{label}</h3>
+        <span className="text-xs text-[#555] bg-white/[0.04] border border-white/[0.08] px-2 py-0.5 rounded-full">{models.length} models</span>
         {canEdit && <p className="ml-auto text-[11px] text-[#555]">Cliquer une cellule pour modifier</p>}
       </div>
 
@@ -253,32 +253,32 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[680px]">
           <thead>
-            <tr className="border-b border-[#222]">
+            <tr className="border-b border-white/[0.08]">
               {/* Model col */}
-              <th className="text-left px-5 py-3 text-[10px] font-semibold text-[#555] uppercase tracking-wide w-36" style={{ backgroundColor: accentColor + '12' }}>Model</th>
+              <th className="text-left px-5 py-3 text-[10px] font-semibold text-[#555] uppercase tracking-wide w-36" style={{ backgroundColor: accentColor + '10' }}>Model</th>
 
               {/* Manual editable */}
-              <th className="text-right px-4 py-3 text-[10px] font-semibold text-[#555] uppercase tracking-wide w-28" style={{ backgroundColor: accentColor + '12' }}>Total Abonnés</th>
-              <th className="text-right px-4 py-3 text-[10px] font-semibold text-[#555] uppercase tracking-wide w-24" style={{ backgroundColor: accentColor + '12' }}>Subs L30</th>
+              <th className="text-right px-4 py-3 text-[10px] font-semibold text-[#555] uppercase tracking-wide w-28" style={{ backgroundColor: accentColor + '10' }}>Total Abonnés</th>
+              <th className="text-right px-4 py-3 text-[10px] font-semibold text-[#555] uppercase tracking-wide w-24" style={{ backgroundColor: accentColor + '10' }}>Subs L30</th>
 
-              {/* Daily editable - distinct background */}
-              <th className="text-right px-4 py-3 w-24" style={{ backgroundColor: 'rgba(245,158,11,0.12)' }}>
+              {/* Daily editable */}
+              <th className="text-right px-4 py-3 w-24" style={{ backgroundColor: 'rgba(245,158,11,0.10)' }}>
                 <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">Subs Hier</span>
-                <span className="block text-[9px] text-amber-500/70 font-normal normal-case tracking-normal">saisie quotidienne</span>
+                <span className="block text-[9px] text-amber-500/60 font-normal normal-case tracking-normal">saisie quotidienne</span>
               </th>
-              <th className="text-right px-4 py-3 w-24" style={{ backgroundColor: 'rgba(245,158,11,0.12)' }}>
+              <th className="text-right px-4 py-3 w-24" style={{ backgroundColor: 'rgba(245,158,11,0.10)' }}>
                 <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">CA Hier</span>
-                <span className="block text-[9px] text-amber-500/70 font-normal normal-case tracking-normal">saisie quotidienne</span>
+                <span className="block text-[9px] text-amber-500/60 font-normal normal-case tracking-normal">saisie quotidienne</span>
               </th>
 
               {/* Calculated - read-only */}
-              <th className="text-right px-4 py-3 text-[10px] font-semibold text-emerald-400 uppercase tracking-wide w-24" style={{ backgroundColor: 'rgba(34,197,94,0.08)' }}>
+              <th className="text-right px-4 py-3 text-[10px] font-semibold text-emerald-400 uppercase tracking-wide w-24" style={{ backgroundColor: 'rgba(34,197,94,0.10)' }}>
                 Subs Mois
-                <span className="block text-[9px] text-emerald-500/60 font-normal normal-case tracking-normal">automatique</span>
+                <span className="block text-[9px] text-emerald-500/50 font-normal normal-case tracking-normal">automatique</span>
               </th>
-              <th className="text-right px-4 py-3 text-[10px] font-semibold text-emerald-400 uppercase tracking-wide w-24" style={{ backgroundColor: 'rgba(34,197,94,0.08)' }}>
+              <th className="text-right px-4 py-3 text-[10px] font-semibold text-emerald-400 uppercase tracking-wide w-24" style={{ backgroundColor: 'rgba(34,197,94,0.10)' }}>
                 CA Mois
-                <span className="block text-[9px] text-emerald-500/60 font-normal normal-case tracking-normal">automatique</span>
+                <span className="block text-[9px] text-emerald-500/50 font-normal normal-case tracking-normal">automatique</span>
               </th>
 
               <th className="w-10" />
@@ -286,16 +286,16 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
           </thead>
           <tbody>
             {/* Consolidated totals row */}
-            <tr className="border-b border-[#222]" style={{ backgroundColor: accentColor + '08' }}>
+            <tr className="border-b border-white/[0.08]" style={{ backgroundColor: accentColor + '08' }}>
               <td className="px-5 py-3">
                 <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: accentColor }}>Totaux</span>
               </td>
-              <td className="px-4 py-3 text-right font-bold text-white text-sm">{fmtN(consolidated.totalSubs)}</td>
-              <td className="px-4 py-3 text-right font-bold text-white text-sm">{fmtN(consolidated.subsL30)}</td>
-              <td className="px-4 py-3 text-right font-bold text-white text-sm" style={{ backgroundColor: 'rgba(245,158,11,0.06)' }}>{fmtN(consolidated.subsHier)}</td>
-              <td className="px-4 py-3 text-right font-bold text-white text-sm" style={{ backgroundColor: 'rgba(245,158,11,0.06)' }}>{fmtCA(consolidated.caHier, currencySym)}</td>
-              <td className="px-4 py-3 text-right font-bold text-emerald-400 text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.04)' }}>{fmtN(consolidated.subsMois)}</td>
-              <td className="px-4 py-3 text-right font-bold text-emerald-400 text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.04)' }}>{fmtCA(consolidated.caMois, currencySym)}</td>
+              <td className="px-4 py-3 text-right font-bold text-[#f0f0f0] text-sm">{fmtN(consolidated.totalSubs)}</td>
+              <td className="px-4 py-3 text-right font-bold text-[#f0f0f0] text-sm">{fmtN(consolidated.subsL30)}</td>
+              <td className="px-4 py-3 text-right font-bold text-[#f0f0f0] text-sm" style={{ backgroundColor: 'rgba(245,158,11,0.07)' }}>{fmtN(consolidated.subsHier)}</td>
+              <td className="px-4 py-3 text-right font-bold text-[#f0f0f0] text-sm" style={{ backgroundColor: 'rgba(245,158,11,0.07)' }}>{fmtCA(consolidated.caHier, currencySym)}</td>
+              <td className="px-4 py-3 text-right font-bold text-emerald-400 text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.05)' }}>{fmtN(consolidated.subsMois)}</td>
+              <td className="px-4 py-3 text-right font-bold text-emerald-400 text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.05)' }}>{fmtCA(consolidated.caMois, currencySym)}</td>
               <td />
             </tr>
 
@@ -313,7 +313,7 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
               const cancel   = () => setCellEdit(null);
 
               return (
-                <tr key={model} className="border-b border-[#1a1a1a]/50 hover:bg-[#1a1a1a]/50 transition-colors group">
+                <tr key={model} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors group">
                   {/* Model name */}
                   <td className="px-5 py-2" style={{ backgroundColor: accentColor + '08' }}>
                     <div className="flex items-center gap-2">
@@ -321,7 +321,7 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
                            style={{ backgroundColor: accentColor + '20', color: accentColor }}>
                         {model.charAt(0).toUpperCase()}
                       </div>
-                      <span className="font-medium text-white truncate max-w-[90px] text-xs">{model}</span>
+                      <span className="font-medium text-[#f0f0f0] truncate max-w-[90px] text-xs">{model}</span>
                     </div>
                   </td>
 
@@ -366,13 +366,13 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
                   </td>
 
                   {/* Subs mois — calculated */}
-                  <td className="px-4 py-2 text-right text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.04)' }}>
-                    <span className={subsMois > 0 ? 'font-semibold text-emerald-400' : 'text-[#333]'}>{fmtN(subsMois)}</span>
+                  <td className="px-4 py-2 text-right text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.05)' }}>
+                    <span className={subsMois > 0 ? 'font-semibold text-emerald-400' : 'text-[#444]'}>{fmtN(subsMois)}</span>
                   </td>
 
                   {/* CA mois — calculated */}
-                  <td className="px-4 py-2 text-right text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.04)' }}>
-                    <span className={caMois > 0 ? 'font-semibold text-emerald-400' : 'text-[#333]'}>{fmtCA(caMois, currencySym)}</span>
+                  <td className="px-4 py-2 text-right text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.05)' }}>
+                    <span className={caMois > 0 ? 'font-semibold text-emerald-400' : 'text-[#444]'}>{fmtCA(caMois, currencySym)}</span>
                   </td>
 
                   {/* History icon */}
@@ -380,7 +380,7 @@ function PlatformSection({ platform, models, accentColor, canEdit }: {
                     <button
                       onClick={() => setSelectedModel(model)}
                       title="Historique des entrées"
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-[#1a1a1a] text-[#444] hover:text-[#888] transition"
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-[#C9A84C]/10 text-[#555] hover:text-[#C9A84C] transition"
                     >
                       <BarChart2 size={13} />
                     </button>
