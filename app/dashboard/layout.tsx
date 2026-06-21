@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Menu } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -32,9 +34,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) return null;
 
   return (
-    <div className="flex h-screen bg-[#0a0a0a]">
-      <Sidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+    <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      <main className="flex-1 md:ml-64 overflow-y-auto min-w-0">
+        {/* Mobile top bar — hidden on md+ where sidebar is always visible */}
+        <div className="md:hidden sticky top-0 z-20 flex items-center gap-3 px-4 h-14 bg-[#0a0a0a] border-b border-[#1a1a1a] flex-shrink-0">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 -ml-1 text-[#888] hover:text-white transition rounded-lg hover:bg-[#1a1a1a]"
+            aria-label="Ouvrir le menu"
+          >
+            <Menu size={20} />
+          </button>
+          <span className="text-white font-semibold text-sm tracking-wide">Load Agency</span>
+        </div>
+
         {children}
       </main>
     </div>

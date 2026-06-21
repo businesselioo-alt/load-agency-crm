@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ArrowUpRight, Users } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { MODELS, INVOICES } from '@/lib/data';
 import Link from 'next/link';
@@ -45,7 +45,6 @@ function LineChart({ data, color, gradId }: { data: ChartPoint[]; color: string;
       </defs>
       <path d={area} fill={`url(#${gradId})`} />
       <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      {/* Last point dot */}
       {pts.length > 0 && (
         <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="3.5" fill={color} />
       )}
@@ -61,35 +60,37 @@ function PlatformBlock({ label, color, gradId, metrics, chart, currencySym }: {
   chart: ChartPoint[];
   currencySym: string;
 }) {
-  const fmtCA  = (n: number) => n === 0 ? '—' : `${currencySym}${n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-  const fmtN   = (n: number) => n === 0 ? '—' : n.toLocaleString('fr-FR');
-  const fmtN0  = (n: number) => n.toLocaleString('fr-FR');
+  const fmtCA = (n: number) => n === 0 ? '—' : `${currencySym}${n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  const fmtN  = (n: number) => n === 0 ? '—' : n.toLocaleString('fr-FR');
+  const fmtN0 = (n: number) => n.toLocaleString('fr-FR');
 
   const cols = [
-    { label: "Auj",     ca: metrics.caToday,     subs: metrics.subsToday },
-    { label: 'Hier',    ca: metrics.caYesterday,  subs: metrics.subsYesterday },
-    { label: 'Semaine', ca: metrics.caWeek,       subs: metrics.subsWeek },
-    { label: 'Mois',    ca: metrics.caMonth,      subs: metrics.subsMonth },
+    { label: 'Auj',     ca: metrics.caToday,    subs: metrics.subsToday },
+    { label: 'Hier',    ca: metrics.caYesterday, subs: metrics.subsYesterday },
+    { label: 'Semaine', ca: metrics.caWeek,      subs: metrics.subsWeek },
+    { label: 'Mois',    ca: metrics.caMonth,     subs: metrics.subsMonth },
   ];
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
       {/* Platform header */}
       <div className="flex items-center gap-3">
         <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
         <span className="font-bold text-white text-base">{label}</span>
-        <div className="ml-auto text-right">
-          <p className="text-xs text-[#888]">Total abonnés</p>
-          <p className="text-lg font-bold text-white leading-tight">{fmtN0(metrics.totalSubs)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-[#888]">Subs L30</p>
-          <p className="text-lg font-bold text-white leading-tight">{fmtN0(metrics.subsLast30Days)}</p>
+        <div className="ml-auto flex items-center gap-4">
+          <div className="text-right">
+            <p className="text-[10px] text-[#888]">Total abonnés</p>
+            <p className="text-base font-bold text-white leading-tight">{fmtN0(metrics.totalSubs)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] text-[#888]">Subs L30</p>
+            <p className="text-base font-bold text-white leading-tight">{fmtN0(metrics.subsLast30Days)}</p>
+          </div>
         </div>
       </div>
 
-      {/* 4 metric columns */}
-      <div className="grid grid-cols-4 gap-2">
+      {/* 4 metric columns — 2 per row on mobile, 4 on sm+ */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {cols.map((c) => (
           <div key={c.label} className="rounded-xl p-3 border border-[#222] bg-[#1a1a1a] flex flex-col gap-0.5">
             <p className="text-[10px] font-semibold text-[#555] uppercase tracking-wide">{c.label}</p>
@@ -113,18 +114,19 @@ function PlatformBlock({ label, color, gradId, metrics, chart, currencySym }: {
 function ChatCACard({ label, color, metrics, currencySym }: { label: string; color: string; metrics: ModelCAMetrics; currencySym: string }) {
   const fmt = (n: number) => n === 0 ? '—' : `${currencySym}${n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   const cells = [
-    { l: "Auj",     v: metrics.caToday },
+    { l: 'Auj',     v: metrics.caToday },
     { l: 'Hier',    v: metrics.caYesterday },
     { l: 'Semaine', v: metrics.caWeek },
     { l: 'Mois',    v: metrics.caMonth },
   ];
   return (
-    <div className="bg-[#111] rounded-2xl border border-[#222] p-5">
+    <div className="bg-[#111] rounded-2xl border border-[#222] p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-4">
-        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
         <span className="text-sm font-bold text-white">{label}</span>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      {/* 2 per row on mobile, 4 on sm+ */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {cells.map((c) => (
           <div key={c.l} className="rounded-xl bg-[#1a1a1a] p-2.5">
             <p className="text-[9px] font-semibold text-[#555] uppercase tracking-wide mb-1">{c.l}</p>
@@ -153,12 +155,12 @@ export default function DashboardPage() {
 
   const recentInvoices = INVOICES.slice(0, 5);
 
-  const [ofMetrics,    setOfMetrics]    = useState<ConsolidatedMetrics>(EMPTY);
-  const [mymMetrics,   setMymMetrics]   = useState<ConsolidatedMetrics>(EMPTY);
-  const [ofChart,      setOfChart]      = useState<ChartPoint[]>([]);
-  const [mymChart,     setMymChart]     = useState<ChartPoint[]>([]);
-  const [chatOf,       setChatOf]       = useState<ModelCAMetrics>(EMPTY_CHAT);
-  const [chatMym,      setChatMym]      = useState<ModelCAMetrics>(EMPTY_CHAT);
+  const [ofMetrics,  setOfMetrics]  = useState<ConsolidatedMetrics>(EMPTY);
+  const [mymMetrics, setMymMetrics] = useState<ConsolidatedMetrics>(EMPTY);
+  const [ofChart,    setOfChart]    = useState<ChartPoint[]>([]);
+  const [mymChart,   setMymChart]   = useState<ChartPoint[]>([]);
+  const [chatOf,     setChatOf]     = useState<ModelCAMetrics>(EMPTY_CHAT);
+  const [chatMym,    setChatMym]    = useState<ModelCAMetrics>(EMPTY_CHAT);
 
   useEffect(() => {
     Promise.all([
@@ -176,10 +178,10 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Bonjour, {user?.name} 👋</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-white">Bonjour, {user?.name} 👋</h1>
         <p className="text-[#888] text-sm mt-1">
           {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </p>
@@ -187,21 +189,23 @@ export default function DashboardPage() {
 
       {/* ── Performance Overview ── */}
       <div className="bg-[#111] rounded-2xl border border-[#222] overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#222]">
+        {/* Card header */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-4 border-b border-[#222]">
           <div>
             <h2 className="font-bold text-white">Performance</h2>
             <p className="text-xs text-[#888] mt-0.5">Données en temps réel · synchronisées depuis la Vue Globale</p>
           </div>
           <Link
             href="/dashboard/marketing"
-            className="flex items-center gap-1.5 text-xs font-medium text-[#C9A84C] hover:text-[#E2C06A] transition"
+            className="flex items-center gap-1.5 text-xs font-medium text-[#C9A84C] hover:text-[#E2C06A] transition flex-shrink-0"
           >
             Vue complète <ArrowUpRight size={13} />
           </Link>
         </div>
 
-        <div className="flex divide-x divide-[#222]">
-          <div className="flex-1 p-6">
+        {/* OF and MYM blocks — stacked on mobile, side by side on md+ */}
+        <div className="flex flex-col md:flex-row">
+          <div className="flex-1 p-4 sm:p-6">
             <PlatformBlock
               label="OnlyFans"
               color="#a855f7"
@@ -211,7 +215,9 @@ export default function DashboardPage() {
               currencySym="$"
             />
           </div>
-          <div className="flex-1 p-6">
+          {/* Divider: horizontal on mobile, vertical on md+ */}
+          <div className="h-px md:h-auto md:w-px bg-[#222] mx-0 md:mx-0 flex-shrink-0" />
+          <div className="flex-1 p-4 sm:p-6">
             <PlatformBlock
               label="MYM"
               color="#ec4899"
@@ -229,42 +235,45 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-sm font-bold text-[#555] uppercase tracking-wide">CA Chatting</h2>
           <div className="flex-1 h-px bg-[#222]" />
-          <Link href="/dashboard/chatter" className="flex items-center gap-1 text-xs font-medium text-[#C9A84C] hover:text-[#E2C06A] transition">
+          <Link href="/dashboard/chatter" className="flex items-center gap-1 text-xs font-medium text-[#C9A84C] hover:text-[#E2C06A] transition flex-shrink-0">
             Voir détails <ArrowUpRight size={11} />
           </Link>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        {/* 1 column on mobile, 2 on sm+ */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ChatCACard label="Chatting OnlyFans" color="#a855f7" metrics={chatOf}  currencySym="$" />
           <ChatCACard label="Chatting MYM"      color="#ec4899" metrics={chatMym} currencySym="€" />
         </div>
       </div>
 
       {/* ── Models + Paiements ── */}
-      <div className="grid grid-cols-3 gap-5">
-        {/* Models */}
-        <div className="col-span-2 bg-[#111] rounded-2xl border border-[#222] p-5">
-          <div className="flex items-center justify-between mb-5">
+      {/* 1 column on mobile/tablet, 3-col grid on lg+ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Models — takes 2 of 3 cols on lg+ */}
+        <div className="lg:col-span-2 bg-[#111] rounded-2xl border border-[#222] p-4 sm:p-5">
+          <div className="flex items-center justify-between mb-4 sm:mb-5">
             <div className="flex items-center gap-2">
               <h2 className="font-semibold text-white">Models</h2>
               <span className="text-xs bg-[#1a1a1a] text-[#888] px-2 py-0.5 rounded-full">
                 {MODELS.filter((m) => m.status === 'active').length} actives
               </span>
             </div>
-            <Link href="/dashboard/models" className="flex items-center gap-1.5 text-sm text-[#C9A84C] hover:text-[#E2C06A] font-medium transition">
+            <Link href="/dashboard/models" className="flex items-center gap-1.5 text-sm text-[#C9A84C] hover:text-[#E2C06A] font-medium transition flex-shrink-0">
               Voir tout <ArrowUpRight size={14} />
             </Link>
           </div>
           <div className="space-y-1">
             {MODELS.map((model) => (
-              <div key={model.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[#1a1a1a] transition">
+              <div key={model.id} className="flex items-center gap-3 px-2 sm:px-3 py-2.5 rounded-xl hover:bg-[#1a1a1a] transition">
                 <div className="w-8 h-8 rounded-full bg-[#C9A84C]/10 flex items-center justify-center flex-shrink-0">
                   <span className="text-[#C9A84C] text-sm font-bold">{model.name.charAt(0)}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white">{model.name}</p>
+                  <p className="text-sm font-medium text-white truncate">{model.name}</p>
                   <p className="text-xs text-[#888] truncate">{model.pseudo} · {model.manager}</p>
                 </div>
-                <div className="flex gap-1">
+                {/* Platform badges — hidden on very small screens to prevent overflow */}
+                <div className="hidden sm:flex gap-1 flex-shrink-0">
                   {model.platforms.map((p) => (
                     <span key={p} className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       p === 'MYM' ? 'bg-pink-500/10 text-pink-400' :
@@ -273,8 +282,8 @@ export default function DashboardPage() {
                     }`}>{p}</span>
                   ))}
                 </div>
-                <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 px-2 py-1 rounded-full flex-shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                <span className="flex items-center gap-1 text-xs text-green-400 bg-green-500/10 px-2 py-1 rounded-full flex-shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
                   Actif
                 </span>
               </div>
@@ -283,10 +292,10 @@ export default function DashboardPage() {
         </div>
 
         {/* Derniers paiements */}
-        <div className="bg-[#111] rounded-2xl border border-[#222] p-5">
-          <div className="flex items-center justify-between mb-5">
+        <div className="bg-[#111] rounded-2xl border border-[#222] p-4 sm:p-5">
+          <div className="flex items-center justify-between mb-4 sm:mb-5">
             <h2 className="font-semibold text-white">Derniers paiements</h2>
-            <Link href="/dashboard/invoices" className="text-sm text-[#C9A84C] hover:text-[#E2C06A] font-medium transition">
+            <Link href="/dashboard/invoices" className="text-sm text-[#C9A84C] hover:text-[#E2C06A] font-medium transition flex-shrink-0">
               Voir tout
             </Link>
           </div>
@@ -296,16 +305,16 @@ export default function DashboardPage() {
               const sym   = inv.currency === 'EUR' ? '€' : inv.currency === 'GBP' ? '£' : '$';
               return (
                 <div key={inv.id} className="flex items-center justify-between py-1.5">
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-7 h-7 rounded-full bg-[#C9A84C]/10 flex items-center justify-center flex-shrink-0">
                       <span className="text-[#C9A84C] text-xs font-bold">{model?.name.charAt(0)}</span>
                     </div>
-                    <div>
-                      <p className="text-xs font-medium text-white">{model?.name}</p>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-white truncate">{model?.name}</p>
                       <p className="text-xs text-[#888]">{inv.platform}</p>
                     </div>
                   </div>
-                  <span className="text-sm font-semibold text-white">{sym}{inv.amount.toLocaleString('fr-FR')}</span>
+                  <span className="text-sm font-semibold text-white flex-shrink-0 ml-2">{sym}{inv.amount.toLocaleString('fr-FR')}</span>
                 </div>
               );
             })}
