@@ -57,6 +57,10 @@ export interface CreatorsDebug {
   listPath: string;
   sampleCreatorKeys: string[];
   allUserNames: string[];
+  // Complete unfiltered object for louvalmont (or first creator as fallback).
+  // Exposes any undocumented fields (subscriberCount, totalFans, etc.) present
+  // in the real API response that the docs sample payloads omit.
+  rawLouValmontFull: unknown;
 }
 
 export async function getConnectedCreators(): Promise<{ map: Map<string, number>; debug: CreatorsDebug }> {
@@ -65,6 +69,8 @@ export async function getConnectedCreators(): Promise<{ map: Map<string, number>
   let firstPageRaw: Record<string, unknown> | null = null;
   let listPath = 'unknown';
   let sampleCreatorKeys: string[] = [];
+  let rawLouValmontFull: unknown = null;
+  let rawFirstCreatorFull: unknown = null; // fallback if louvalmont not found
 
   try {
     do {
@@ -104,7 +110,16 @@ export async function getConnectedCreators(): Promise<{ map: Map<string, number>
         const raw = c as Record<string, unknown>;
         const id   = raw.id ?? raw.creatorId ?? raw.creator_id;
         const name = raw.userName ?? raw.username ?? raw.user_name ?? raw.name;
-        if (name && id) map.set(String(name), Number(id));
+        if (name && id) {
+          map.set(String(name), Number(id));
+          // Capture the full unfiltered object — we're looking for undocumented
+          // subscriber-count fields (subscriberCount, totalFans, activeSubscribers…)
+          if (!rawFirstCreatorFull) rawFirstCreatorFull = raw;
+          if (String(name) === 'louvalmont') {
+            rawLouValmontFull = raw;
+            console.log('[infloww] louvalmont FULL raw object:', JSON.stringify(raw));
+          }
+        }
       }
 
       const hasMore    = json.hasMore    ?? d?.hasMore    ?? json.has_more;
@@ -129,6 +144,10 @@ export async function getConnectedCreators(): Promise<{ map: Map<string, number>
       listPath,
       sampleCreatorKeys,
       allUserNames: [...map.keys()],
+      // Full raw object — louvalmont if found, otherwise first creator in list.
+      // This is the most important debug field: it reveals every field the API
+      // actually returns, including any subscriber-count fields not in the docs.
+      rawLouValmontFull: rawLouValmontFull ?? rawFirstCreatorFull,
     },
   };
 }

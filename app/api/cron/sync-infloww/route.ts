@@ -247,6 +247,11 @@ export async function GET() {
         parisDateBounds: dateBounds,
         creatorsFound: creatorsMap.size,
         creatorsDebug,
+        // Complete unfiltered creator object for louvalmont (or first creator as fallback).
+        // Exposes every field actually returned by GET /v1/creators, including any
+        // undocumented subscriber-count fields (subscriberCount, totalFans, etc.)
+        // not shown in the minimal docs sample payloads.
+        rawCreatorObjectFull: creatorsDebug.rawLouValmontFull,
         // Supabase ground truth — confirms today's entries exist and what was written
         supabaseEntriesForSyncedDates: supabaseEntries ?? [],
         // 48h wide-window test for Lou — isolates date-boundary vs auth issues
