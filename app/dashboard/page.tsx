@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ArrowUpRight } from 'lucide-react';
+import { AreaChart, Area, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '@/contexts/AuthContext';
 import { MODELS, INVOICES } from '@/lib/data';
 import Link from 'next/link';
@@ -14,9 +15,16 @@ import {
   OF_MODELS as CHAT_OF, MYM_MODELS as CHAT_MYM,
 } from '@/lib/chatting';
 
-// ─── SVG line chart ───────────────────────────────────────────────────────────
+// ─── Interactive line chart (Recharts) ───────────────────────────────────────
 
-function LineChart({ data, color, gradId }: { data: ChartPoint[]; color: string; gradId: string }) {
+function fmtDayLabel(day: number): string {
+  const months = ['janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'];
+  return `${day} ${months[new Date().getMonth()]}`;
+}
+
+function LineChart({ data, color, gradId, currencySym }: {
+  data: ChartPoint[]; color: string; gradId: string; currencySym: string;
+}) {
   const hasData = data.some((d) => d.value > 0);
   if (!hasData) {
     return (
@@ -25,30 +33,52 @@ function LineChart({ data, color, gradId }: { data: ChartPoint[]; color: string;
       </div>
     );
   }
-  const W = 500; const H = 56; const P = 4;
-  const max = Math.max(...data.map((d) => d.value), 1);
-  const pts = data.map((d, i) => [
-    P + (data.length < 2 ? (W - P * 2) / 2 : (i / (data.length - 1)) * (W - P * 2)),
-    H - P - (d.value / max) * (H - P * 2),
-  ] as [number, number]);
-  const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${x} ${y}`).join(' ');
-  const area = `M ${pts[0][0]} ${pts[0][1]} ` +
-    pts.slice(1).map(([x, y]) => `L ${x} ${y}`).join(' ') +
-    ` L ${pts[pts.length - 1][0]} ${H} L ${pts[0][0]} ${H} Z`;
+  const chartData = data.map((d) => ({ date: fmtDayLabel(d.day), value: d.value }));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 56 }}>
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor={color} stopOpacity="0.18" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill={`url(#${gradId})`} />
-      <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      {pts.length > 0 && (
-        <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="3.5" fill={color} />
-      )}
-    </svg>
+    <ResponsiveContainer width="100%" height={56}>
+      <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor={color} stopOpacity={0.18} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Tooltip
+          cursor={{ stroke: color, strokeWidth: 1, opacity: 0.35 }}
+          content={(props) => {
+            if (!props.active || !props.payload?.length) return null;
+            const val = Number(props.payload[0].value);
+            return (
+              <div style={{
+                backgroundColor: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '10px',
+                padding: '7px 12px',
+                fontSize: '12px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.65)',
+                pointerEvents: 'none',
+              }}>
+                <p style={{ color: '#888', margin: 0 }}>{props.label}</p>
+                <p style={{ color: '#f0f0f0', fontWeight: 700, margin: '3px 0 0' }}>
+                  {currencySym}{val.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+            );
+          }}
+        />
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke={color}
+          strokeWidth={2.5}
+          fill={`url(#${gradId})`}
+          fillOpacity={1}
+          dot={false}
+          activeDot={{ r: 4, fill: color, strokeWidth: 0 }}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
   );
 }
 
@@ -61,14 +91,13 @@ function PlatformBlock({ label, color, gradId, metrics, chart, currencySym }: {
   currencySym: string;
 }) {
   const fmtCA = (n: number) => n === 0 ? '—' : `${currencySym}${n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-  const fmtN  = (n: number) => n === 0 ? '—' : n.toLocaleString('fr-FR');
   const fmtN0 = (n: number) => n.toLocaleString('fr-FR');
 
   const cols = [
-    { label: 'Auj',     ca: metrics.caToday,    subs: metrics.subsToday },
-    { label: 'Hier',    ca: metrics.caYesterday, subs: metrics.subsYesterday },
-    { label: 'Semaine', ca: metrics.caWeek,      subs: metrics.subsWeek },
-    { label: 'Mois',    ca: metrics.caMonth,     subs: metrics.subsMonth },
+    { label: 'Auj',     ca: metrics.caToday    },
+    { label: 'Hier',    ca: metrics.caYesterday },
+    { label: 'Semaine', ca: metrics.caWeek      },
+    { label: 'Mois',    ca: metrics.caMonth     },
   ];
 
   return (
@@ -95,7 +124,6 @@ function PlatformBlock({ label, color, gradId, metrics, chart, currencySym }: {
           <div key={c.label} className="rounded-xl p-3 border border-[#222] bg-[#1a1a1a] flex flex-col gap-0.5">
             <p className="text-[10px] font-semibold text-[#555] uppercase tracking-wide">{c.label}</p>
             <p className="text-sm font-bold text-white leading-tight">{fmtCA(c.ca)}</p>
-            <p className="text-xs text-[#888]">{fmtN(c.subs)} subs</p>
           </div>
         ))}
       </div>
@@ -103,7 +131,7 @@ function PlatformBlock({ label, color, gradId, metrics, chart, currencySym }: {
       {/* Chart */}
       <div>
         <p className="text-[10px] font-semibold text-[#555] uppercase tracking-wider mb-1.5">CA — mois en cours</p>
-        <LineChart data={chart} color={color} gradId={gradId} />
+        <LineChart data={chart} color={color} gradId={gradId} currencySym={currencySym} />
       </div>
     </div>
   );
