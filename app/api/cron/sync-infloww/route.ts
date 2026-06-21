@@ -226,6 +226,82 @@ export async function GET() {
       console.log('[sync] wide-window test (Lou, 48h):', JSON.stringify(wideWindowTest));
     }
 
+    // ── Subscription-type investigation: last 7 days for Lou ───────────────
+    // Theory: free subscriptions (amount=0, net=0) might appear as "Subscription"
+    // type transactions. We currently count only paid new-sub types. If zero-amount
+    // Subscription entries exist, counting ALL Subscription-type transactions
+    // (paid + free) would give a more realistic new-subscriber number.
+    //
+    // This block fetches ALL transactions over 7 days and buckets them by
+    // type × amount-bucket (zero vs non-zero) to reveal exactly what's there.
+    let subscriptionTypeInvestigation: unknown = null;
+    const investId = louId ?? creatorsMap.get('jeannebourgot');
+    const investName = louId ? 'louvalmont' : 'jeannebourgot';
+    if (investId) {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+      const nowISO2      = new Date().toISOString();
+      const { transactions: allTxns7d, debug: investDbg } =
+        await getCreatorTransactionsDebug(investId, sevenDaysAgo, nowISO2);
+
+      // Bucket every transaction: type → { total, zeroAmount, nonZero, samples }
+      const byType: Record<string, {
+        count: number;
+        zeroAmountCount: number;   // net=0 AND amount=0 (or absent) → free sub candidate
+        nonZeroCount: number;      // net>0 OR amount>0 → paid
+        zeroAmountSamples: unknown[];
+        nonZeroSamples: unknown[];
+      }> = {};
+
+      for (const t of allTxns7d) {
+        const raw    = t as Record<string, unknown>;
+        const rawType = String(t.type ?? t.transactionType ?? t.category ?? 'unknown');
+        if (!byType[rawType]) {
+          byType[rawType] = { count: 0, zeroAmountCount: 0, nonZeroCount: 0, zeroAmountSamples: [], nonZeroSamples: [] };
+        }
+        byType[rawType].count++;
+
+        const netVal  = raw.net   ?? t.netAmount ?? t.net_amount;
+        const grossVal = raw.amount ?? raw.grossAmount ?? raw.gross_amount;
+        const netNum   = netVal   !== undefined && netVal   !== null ? Number(netVal)   : 0;
+        const grossNum = grossVal !== undefined && grossVal !== null ? Number(grossVal) : 0;
+        const isZero   = netNum === 0 && grossNum === 0;
+
+        if (isZero) {
+          byType[rawType].zeroAmountCount++;
+          if (byType[rawType].zeroAmountSamples.length < 2) byType[rawType].zeroAmountSamples.push(raw);
+        } else {
+          byType[rawType].nonZeroCount++;
+          if (byType[rawType].nonZeroSamples.length < 2) byType[rawType].nonZeroSamples.push(raw);
+        }
+      }
+
+      // Pull out the Subscription bucket specifically for easy reading
+      const subBucket = Object.entries(byType).find(
+        ([k]) => k.toLowerCase() === 'subscription' || k.toLowerCase() === 'subscribe'
+      );
+
+      subscriptionTypeInvestigation = {
+        creator: investName,
+        creatorId: investId,
+        windowStart: sevenDaysAgo,
+        windowEnd: nowISO2,
+        totalTransactions: allTxns7d.length,
+        apiStatus: investDbg.status,
+        httpErrorBody: investDbg.httpErrorBody,
+        exception: investDbg.exception,
+        // The key question: how many "Subscription" entries and how many are zero-amount?
+        subscriptionBucket: subBucket ? subBucket[1] : null,
+        // Full breakdown by type so we can see every type present over 7 days
+        byType,
+      };
+
+      console.log('[sync] subscription investigation (7d, Lou):', JSON.stringify({
+        total: allTxns7d.length, byType: Object.fromEntries(
+          Object.entries(byType).map(([k, v]) => [k, { count: v.count, zero: v.zeroAmountCount, nonZero: v.nonZeroCount }])
+        ),
+      }));
+    }
+
     // Confirm what's actually in Supabase for both dates after all upserts
     const { data: supabaseEntries } = await supabase
       .from('vg_daily_entries')
@@ -256,6 +332,10 @@ export async function GET() {
         supabaseEntriesForSyncedDates: supabaseEntries ?? [],
         // 48h wide-window test for Lou — isolates date-boundary vs auth issues
         wideWindowTest,
+        // 7-day subscription-type investigation for Lou:
+        // byType[type].zeroAmountCount > 0 → free subs appear as zero-amount transactions
+        // If true, count ALL Subscription-type txns (not just paid) for new-sub tracking
+        subscriptionTypeInvestigation,
         models: debugModels,
       },
     });
