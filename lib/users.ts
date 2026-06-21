@@ -63,64 +63,113 @@ function saveLocalUsers(users: CRMUser[]): void {
   localStorage.setItem(USERS_LS_KEY, JSON.stringify(users));
 }
 
+function userToRow(user: CRMUser) {
+  return {
+    id: user.id, first_name: user.firstName, last_name: user.lastName,
+    name: user.name, email: user.email, password: user.password,
+    role: user.role, modules: user.modules, status: user.status, created_at: user.createdAt,
+  };
+}
+
 export async function loadUsers(): Promise<CRMUser[]> {
+  // Supabase is the authoritative source — await it synchronously
+  try {
+    const { data, error } = await supabase.from('crm_users').select('*').order('created_at');
+    if (!error && data && data.length > 0) {
+      const supabaseUsers = data.map(r => rowToUser(r as Record<string, unknown>));
+      // Refresh local read cache to reflect Supabase state
+      saveLocalUsers(supabaseUsers.filter(u => !DEMO_USERS.find(d => d.id === u.id)));
+      const merged = [...DEMO_USERS];
+      for (const u of supabaseUsers) {
+        if (!merged.find(m => m.id === u.id)) merged.push(u);
+      }
+      return merged;
+    }
+  } catch (e) {
+    console.error('[loadUsers] Supabase unreachable, falling back to localStorage:', e);
+  }
+
+  // Offline fallback: DEMO + localStorage cache
   const local = getLocalUsers();
   const merged = [...DEMO_USERS];
   for (const u of local) {
     if (!merged.find(m => m.id === u.id)) merged.push(u);
   }
-  // Sync Supabase en arrière-plan (sans bloquer)
-  supabase.from('crm_users').select('*').order('created_at').then(({ data, error }) => {
-    if (!error && data && data.length > 0) {
-      const all = data.map(rowToUser);
-      saveLocalUsers(all.filter(u => !DEMO_USERS.find(d => d.id === u.id)));
-    }
-  });
   return merged;
 }
 
 export async function authenticateWithSupabase(email: string, password: string): Promise<CRMUser | null> {
   const normalized = email.trim().toLowerCase();
-  // 1. Cherche dans les users locaux (créés dans Paramètres)
+  // 1. Cherche dans les DEMO_USERS (toujours disponibles sans réseau)
+  const demoMatch = DEMO_USERS.find(
+    u => u.email.toLowerCase() === normalized && u.password === password && u.status === 'active'
+  );
+  if (demoMatch) return demoMatch;
+  // 2. Cherche dans le cache localStorage (utilisateurs créés côté admin)
   const localUsers = getLocalUsers();
   const localMatch = localUsers.find(
     u => u.email.toLowerCase() === normalized && u.password === password && u.status === 'active'
   );
   if (localMatch) return localMatch;
-  // 2. Cherche dans les DEMO_USERS
-  const demoMatch = DEMO_USERS.find(
-    u => u.email.toLowerCase() === normalized && u.password === password && u.status === 'active'
-  );
-  if (demoMatch) return demoMatch;
-  // 3. Essaie Supabase en dernier
+  // 3. Requête directe Supabase (source de vérité)
   try {
     const { data, error } = await supabase.from('crm_users').select('*')
       .ilike('email', email.trim()).eq('password', password).eq('status', 'active').maybeSingle();
     if (!error && data) return rowToUser(data as Record<string, unknown>);
-  } catch { /* ignore */ }
+  } catch { /* ignore network errors */ }
   return null;
 }
 
-export async function migrateLocalStorageToSupabase(): Promise<void> { /* no-op */ }
+// Push any localStorage-only users (e.g. James, Mahé) up to Supabase.
+// Called once on admin load. Silently skips on RLS/network failures — the
+// error will be visible when the admin next tries to edit one of those accounts.
+export async function migrateLocalStorageToSupabase(): Promise<void> {
+  const local = getLocalUsers().filter(u => !DEMO_USERS.find(d => d.id === u.id));
+  if (local.length === 0) return;
 
-export async function saveUser(user: CRMUser): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from('crm_users').select('id').in('id', local.map(u => u.id));
+    const existingIds = new Set((existing ?? []).map((r: { id: string }) => r.id));
+    const missing = local.filter(u => !existingIds.has(u.id));
+    if (missing.length === 0) return;
+
+    console.log('[migrate] Pushing localStorage-only users to Supabase:', missing.map(u => u.name));
+    for (const user of missing) {
+      const { error } = await supabase.from('crm_users').upsert(userToRow(user));
+      if (error) {
+        console.error('[migrate] Failed to migrate', user.name, ':', error.code, error.message);
+      } else {
+        console.log('[migrate] Migrated:', user.name);
+      }
+    }
+  } catch (e) {
+    console.error('[migrate] Supabase unreachable during migration:', e);
+  }
+}
+
+// PRIMARY: write to Supabase first. Returns { success: false, error } on failure
+// so callers can surface the error to the UI rather than silently losing data.
+export async function saveUser(user: CRMUser): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase.from('crm_users').upsert(userToRow(user));
+
+  if (error) {
+    console.error('[saveUser] Supabase error:', error.code, error.message, error.details, error.hint);
+    return { success: false, error: `Erreur Supabase (${error.code}) : ${error.message}` };
+  }
+
+  // Only update local cache after confirmed Supabase write
   const local = getLocalUsers();
   const idx = local.findIndex(u => u.id === user.id);
   if (idx >= 0) local[idx] = user; else local.push(user);
   saveLocalUsers(local);
-  // Sync Supabase en arrière-plan
-  try {
-    await supabase.from('crm_users').upsert({
-      id: user.id, first_name: user.firstName, last_name: user.lastName,
-      name: user.name, email: user.email, password: user.password,
-      role: user.role, modules: user.modules, status: user.status, created_at: user.createdAt,
-    });
-  } catch { /* ignore */ }
+
+  return { success: true };
 }
 
 export async function deleteUserById(id: string): Promise<void> {
-  const local = getLocalUsers().filter(u => u.id !== id);
-  saveLocalUsers(local);
+  // Optimistically remove from local cache
+  saveLocalUsers(getLocalUsers().filter(u => u.id !== id));
   try { await supabase.from('crm_users').delete().eq('id', id); } catch { /* ignore */ }
 }
 

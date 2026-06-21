@@ -110,6 +110,7 @@ export default function SettingsPage() {
   const [form, setForm]                     = useState<FormState>(EMPTY_FORM);
   const [showPassword, setShowPassword]     = useState(false);
   const [formError, setFormError]           = useState('');
+  const [isSaving, setIsSaving]             = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg]         = useState('');
 
@@ -167,7 +168,7 @@ export default function SettingsPage() {
   };
 
   // ── Submit ──────────────────────────────────────────────────────────────────
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -184,35 +185,42 @@ export default function SettingsPage() {
     );
     if (emailConflict) { setFormError('Cette adresse email est déjà utilisée.'); return; }
 
-    if (modalMode === 'add') {
-      const created = makeUser({
-        firstName: firstName.trim(),
-        lastName:  form.lastName.trim(),
-        email:     email.trim().toLowerCase(),
-        password,
-        role,
-        modules,
-        status: 'active',
-      });
-      addUser(created);
-      flash(`${created.name || created.firstName} a été ajouté(e).`);
-    } else if (editingUser) {
-      const finalStatus = editingUser.id === me?.id ? 'active' : status;
-      const updated: CRMUser = {
-        ...editingUser,
-        firstName: firstName.trim(),
-        lastName:  form.lastName.trim(),
-        name:      `${firstName.trim()} ${form.lastName.trim()}`.trim(),
-        email:     email.trim().toLowerCase(),
-        password:  password || editingUser.password,
-        role,
-        modules,
-        status: finalStatus,
-      };
-      updateUser(updated);
-      flash('Modifications enregistrées.');
+    setIsSaving(true);
+    try {
+      if (modalMode === 'add') {
+        const created = makeUser({
+          firstName: firstName.trim(),
+          lastName:  form.lastName.trim(),
+          email:     email.trim().toLowerCase(),
+          password,
+          role,
+          modules,
+          status: 'active',
+        });
+        await addUser(created);
+        flash(`${created.name || created.firstName} a été ajouté(e).`);
+      } else if (editingUser) {
+        const finalStatus = editingUser.id === me?.id ? 'active' : status;
+        const updated: CRMUser = {
+          ...editingUser,
+          firstName: firstName.trim(),
+          lastName:  form.lastName.trim(),
+          name:      `${firstName.trim()} ${form.lastName.trim()}`.trim(),
+          email:     email.trim().toLowerCase(),
+          password:  password || editingUser.password,
+          role,
+          modules,
+          status: finalStatus,
+        };
+        await updateUser(updated);
+        flash('Modifications enregistrées.');
+      }
+      closeModal();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde.');
+    } finally {
+      setIsSaving(false);
     }
-    closeModal();
   };
 
   // ── Delete ──────────────────────────────────────────────────────────────────
@@ -558,16 +566,18 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={closeModal}
-                className="px-4 py-2.5 text-sm text-[#888] border border-[#333] rounded-xl hover:bg-[#1a1a1a] transition"
+                disabled={isSaving}
+                className="px-4 py-2.5 text-sm text-[#888] border border-[#333] rounded-xl hover:bg-[#1a1a1a] transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Annuler
               </button>
               <button
                 type="submit"
                 form="user-form"
-                className="px-5 py-2.5 bg-[#C9A84C] text-black text-sm font-semibold rounded-xl hover:bg-[#E2C06A] transition"
+                disabled={isSaving}
+                className="px-5 py-2.5 bg-[#C9A84C] text-black text-sm font-semibold rounded-xl hover:bg-[#E2C06A] transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {modalMode === 'add' ? 'Créer le compte' : 'Enregistrer'}
+                {isSaving ? 'Enregistrement…' : modalMode === 'add' ? 'Créer le compte' : 'Enregistrer'}
               </button>
             </div>
           </div>

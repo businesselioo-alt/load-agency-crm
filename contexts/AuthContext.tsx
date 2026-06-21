@@ -92,12 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const addUser = async (newUser: CRMUser) => {
-    await saveUser(newUser);
+    const result = await saveUser(newUser);
+    if (!result.success) throw new Error(result.error ?? 'Impossible de créer cet utilisateur.');
     setUsers((prev) => [...prev, newUser]);
   };
 
   const updateUser = async (updatedUser: CRMUser) => {
-    await saveUser(updatedUser);
+    const result = await saveUser(updatedUser);
+    if (!result.success) throw new Error(result.error ?? 'Impossible de modifier cet utilisateur.');
     setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
     if (user?.id === updatedUser.id) setUser(updatedUser);
   };
