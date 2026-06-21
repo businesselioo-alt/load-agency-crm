@@ -51,6 +51,21 @@ function parisDateBounds(offsetDays: number): DateBounds {
   return { date, start: start.toISOString(), end: end.toISOString() };
 }
 
+// Returns DateBounds for every calendar day in the current Paris month,
+// from the 1st up to and including today.
+function getAllParisMonthDayBounds(): DateBounds[] {
+  const now        = new Date();
+  const todayParis = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Paris' }).format(now);
+  const dayOfMonth = Number(todayParis.split('-')[2]); // 1-based day number today
+
+  const days: DateBounds[] = [];
+  for (let day = 1; day <= dayOfMonth; day++) {
+    const offset = day - dayOfMonth; // 0 = today, -1 = yesterday, -(N-1) = 1st of month
+    days.push(parisDateBounds(offset));
+  }
+  return days;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface DateDebug {
@@ -85,17 +100,36 @@ export async function GET() {
   const totals: Record<string, number> = {}; // date → summed revenue across all models
 
   try {
-    const todayBounds     = parisDateBounds(0);
-    const yesterdayBounds = parisDateBounds(-1);
+    // All days from the 1st of the current Paris month to today.
+    // Cap today's endTime to now — Infloww rejects endTime > now.
+    const nowISO       = new Date().toISOString();
+    const allDayBounds = getAllParisMonthDayBounds();
+    const todayDate    = allDayBounds[allDayBounds.length - 1].date;
+    const yesterdayDate = allDayBounds.length >= 2 ? allDayBounds[allDayBounds.length - 2].date : '';
+    if (allDayBounds[allDayBounds.length - 1].end > nowISO) {
+      allDayBounds[allDayBounds.length - 1].end = nowISO;
+    }
 
-    // Cap today's endTime to right now — some APIs reject endTime > now with 400/422.
-    // This was causing 0 transactions for "today" (endTime was Paris midnight = ~6h future).
-    const nowISO = new Date().toISOString();
-    if (todayBounds.end > nowISO) todayBounds.end = nowISO;
+    console.log('[sync] month bounds: day 1 =', allDayBounds[0].date,
+      '| today =', todayDate, '| total days =', allDayBounds.length);
 
-    const dateBounds = [todayBounds, yesterdayBounds];
+    // Pre-fetch which model×date combos already have Infloww data in Supabase.
+    // Historical days (not today or yesterday) that are already synced are skipped
+    // so each cron run only re-fetches today + yesterday (still-accumulating data),
+    // plus any gaps from earlier in the month that haven't been backfilled yet.
+    const monthStart = allDayBounds[0].date;
+    const { data: alreadySyncedRows } = await supabase
+      .from('vg_daily_entries')
+      .select('model_name, date')
+      .eq('platform', 'of')
+      .eq('note', 'infloww')
+      .gte('date', monthStart)
+      .lte('date', todayDate);
 
-    console.log('[sync] Paris date bounds (today end capped to now):', JSON.stringify(dateBounds));
+    const alreadySynced = new Set(
+      (alreadySyncedRows ?? []).map((r) => `${r.model_name as string}|${r.date as string}`)
+    );
+    console.log('[sync] already synced this month:', alreadySynced.size, 'entries');
 
     // ── 1. Resolve creators ────────────────────────────────────────────────
     const { map: creatorsMap, debug: creatorsDebug } = await getConnectedCreators();
@@ -118,7 +152,15 @@ export async function GET() {
         continue;
       }
 
-      for (const { date, start: startTime, end: endTime } of dateBounds) {
+      for (const { date, start: startTime, end: endTime } of allDayBounds) {
+        // Skip historical days that are already in Supabase — their data is final.
+        // Always re-fetch today and yesterday (transactions still accumulating).
+        const isRecent = date === todayDate || date === yesterdayDate;
+        if (!isRecent && alreadySynced.has(`${modelName}|${date}`)) {
+          console.log(`[sync] ${modelName} ${date}: already synced, skipping`);
+          continue;
+        }
+
         const dateDebug: DateDebug = {
           date, startTime, endTime,
           transactionCount: 0, firstRawTransaction: null,
@@ -302,12 +344,13 @@ export async function GET() {
       }));
     }
 
-    // Confirm what's actually in Supabase for both dates after all upserts
+    // Confirm what's actually in Supabase for the whole month after all upserts
     const { data: supabaseEntries } = await supabase
       .from('vg_daily_entries')
       .select('model_name, date, revenue, new_subs, note')
       .eq('platform', 'of')
-      .in('date', dateBounds.map((b) => b.date))
+      .gte('date', monthStart)
+      .lte('date', todayDate)
       .order('date')
       .order('model_name');
 
@@ -320,7 +363,10 @@ export async function GET() {
         revenueTotalByDate: totals,
         // Full detail
         globalTypeCount,
-        parisDateBounds: dateBounds,
+        monthStart,
+        todayDate,
+        totalDaysInMonth: allDayBounds.length,
+        alreadySyncedCount: alreadySynced.size,
         creatorsFound: creatorsMap.size,
         creatorsDebug,
         // Complete unfiltered creator object for louvalmont (or first creator as fallback).
