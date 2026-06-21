@@ -159,7 +159,7 @@ function SidePanel({ modelName, stats, canEdit, currencySym, onClose, onUpdate }
 
 // ─── Editable cell (single click) ────────────────────────────────────────────
 
-type CellField = 'totalSubs' | 'subsLast30Days' | 'subsHier' | 'caHier';
+type CellField = 'totalSubs' | 'subsLast30Days' | 'caHier';
 
 function EditCell({ value, isActive, canEdit, isCurrency = false, currencySym = '€', onActivate, onSave, onCancel }: {
   value: number; isActive: boolean; canEdit: boolean; isCurrency?: boolean; currencySym?: string;
@@ -233,14 +233,13 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
   // Consolidated row values
   const ystr = yesterdayStr(); const ms = monthStartStr(); const t = todayStr();
   const consolidated = useMemo(() => ({
-    totalSubs:   models.reduce((s, m) => s + (data[m]?.totalSubs ?? 0), 0),
-    subsL30:     models.reduce((s, m) => s + (data[m]?.subsLast30Days ?? 0), 0),
-    subsHier:    models.reduce((s, m) => s + (data[m]?.entries.find((e) => e.date === ystr)?.newSubs ?? 0), 0),
-    caHier:      models.reduce((s, m) => s + (data[m]?.entries.find((e) => e.date === ystr)?.revenue ?? 0), 0),
-    subsAujourd: models.reduce((s, m) => s + (data[m]?.entries.find((e) => e.date === t)?.newSubs ?? 0), 0),
-    caAujourd:   models.reduce((s, m) => s + (data[m]?.entries.find((e) => e.date === t)?.revenue ?? 0), 0),
-    subsMois:    models.reduce((s, m) => s + (data[m]?.entries ?? []).filter((e) => e.date >= ms && e.date <= t).reduce((a, e) => a + e.newSubs, 0), 0),
-    caMois:      models.reduce((s, m) => s + (data[m]?.entries ?? []).filter((e) => e.date >= ms && e.date <= t).reduce((a, e) => a + e.revenue, 0), 0),
+    totalSubs: models.reduce((s, m) => s + (data[m]?.totalSubs ?? 0), 0),
+    subsL30:   models.reduce((s, m) => s + (data[m]?.subsLast30Days ?? 0), 0),
+    caHier:    models.reduce((s, m) => s + (data[m]?.entries.find((e) => e.date === ystr)?.revenue ?? 0), 0),
+    caAujourd: models.reduce((s, m) => s + (data[m]?.entries.find((e) => e.date === t)?.revenue ?? 0), 0),
+    // Sum ALL entries from the 1st of the current month to today (inclusive),
+    // from every source (manual entry or Infloww auto-sync).
+    caMois:    models.reduce((s, m) => s + (data[m]?.entries ?? []).filter((e) => e.date >= ms && e.date <= t).reduce((a, e) => a + e.revenue, 0), 0),
   }), [data, models, ystr, ms, t]);
 
   const label        = platform === 'of' ? 'OnlyFans' : 'MYM';
@@ -261,7 +260,7 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[860px]">
+        <table className="w-full text-sm min-w-[680px]">
           <thead>
             <tr className="border-b border-white/[0.08]">
               {/* Model col */}
@@ -271,24 +270,13 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
               <th className="text-right px-4 py-3 text-[10px] font-semibold text-[#555] uppercase tracking-wide w-28" style={{ backgroundColor: accentColor + '10' }}>Total Abonnés</th>
               <th className="text-right px-4 py-3 text-[10px] font-semibold text-[#555] uppercase tracking-wide w-24" style={{ backgroundColor: accentColor + '10' }}>Subs L30</th>
 
-              {/* Daily editable */}
-              <th className="text-right px-4 py-3 w-24" style={{ backgroundColor: 'rgba(245,158,11,0.10)' }}>
-                <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">Subs Hier</span>
-                <span className="block text-[9px] text-amber-500/60 font-normal normal-case tracking-normal">saisie quotidienne</span>
-              </th>
+              {/* Yesterday revenue — auto-synced via Infloww (OF) or manual (MYM) */}
               <th className="text-right px-4 py-3 w-24" style={{ backgroundColor: 'rgba(245,158,11,0.10)' }}>
                 <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">CA Hier</span>
                 <span className="block text-[9px] text-amber-500/60 font-normal normal-case tracking-normal">saisie quotidienne</span>
               </th>
 
-              {/* Today — live from Infloww, read-only */}
-              <th className="text-right px-4 py-3 w-24" style={{ backgroundColor: 'rgba(59,130,246,0.10)' }}>
-                <span className="flex items-center justify-end gap-1.5 text-[10px] font-semibold text-blue-400 uppercase tracking-wide">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
-                  Subs Auj.
-                </span>
-                <span className="block text-[9px] text-blue-500/50 font-normal normal-case tracking-normal">temps réel</span>
-              </th>
+              {/* Today revenue — live from Infloww (OF), read-only */}
               <th className="text-right px-4 py-3 w-24" style={{ backgroundColor: 'rgba(59,130,246,0.10)' }}>
                 <span className="flex items-center justify-end gap-1.5 text-[10px] font-semibold text-blue-400 uppercase tracking-wide">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
@@ -297,14 +285,10 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
                 <span className="block text-[9px] text-blue-500/50 font-normal normal-case tracking-normal">temps réel</span>
               </th>
 
-              {/* Calculated - read-only */}
-              <th className="text-right px-4 py-3 text-[10px] font-semibold text-emerald-400 uppercase tracking-wide w-24" style={{ backgroundColor: 'rgba(34,197,94,0.10)' }}>
-                Subs Mois
-                <span className="block text-[9px] text-emerald-500/50 font-normal normal-case tracking-normal">automatique</span>
-              </th>
-              <th className="text-right px-4 py-3 text-[10px] font-semibold text-emerald-400 uppercase tracking-wide w-24" style={{ backgroundColor: 'rgba(34,197,94,0.10)' }}>
+              {/* Running month total — sum of ALL entries from the 1st to today */}
+              <th className="text-right px-4 py-3 text-[10px] font-semibold text-emerald-400 uppercase tracking-wide w-28" style={{ backgroundColor: 'rgba(34,197,94,0.10)' }}>
                 CA Mois
-                <span className="block text-[9px] text-emerald-500/50 font-normal normal-case tracking-normal">automatique</span>
+                <span className="block text-[9px] text-emerald-500/50 font-normal normal-case tracking-normal">depuis le 1er</span>
               </th>
 
               <th className="w-10" />
@@ -318,26 +302,20 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
               </td>
               <td className="px-4 py-3 text-right font-bold text-[#f0f0f0] text-sm">{fmtN(consolidated.totalSubs)}</td>
               <td className="px-4 py-3 text-right font-bold text-[#f0f0f0] text-sm">{fmtN(consolidated.subsL30)}</td>
-              <td className="px-4 py-3 text-right font-bold text-[#f0f0f0] text-sm" style={{ backgroundColor: 'rgba(245,158,11,0.07)' }}>{fmtN(consolidated.subsHier)}</td>
               <td className="px-4 py-3 text-right font-bold text-[#f0f0f0] text-sm" style={{ backgroundColor: 'rgba(245,158,11,0.07)' }}>{fmtCA(consolidated.caHier, currencySym)}</td>
-              <td className="px-4 py-3 text-right font-bold text-blue-400 text-sm" style={{ backgroundColor: 'rgba(59,130,246,0.07)' }}>{fmtN(consolidated.subsAujourd)}</td>
               <td className="px-4 py-3 text-right font-bold text-blue-400 text-sm" style={{ backgroundColor: 'rgba(59,130,246,0.07)' }}>{fmtCA(consolidated.caAujourd, currencySym)}</td>
-              <td className="px-4 py-3 text-right font-bold text-emerald-400 text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.05)' }}>{fmtN(consolidated.subsMois)}</td>
               <td className="px-4 py-3 text-right font-bold text-emerald-400 text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.05)' }}>{fmtCA(consolidated.caMois, currencySym)}</td>
               <td />
             </tr>
 
             {/* Per-model rows */}
             {models.map((model) => {
-              const stats    = data[model] ?? { totalSubs: 0, subsLast30Days: 0, entries: [] };
-              const yEntry      = getYesterdayEntry(stats.entries);
-              const subsHier    = yEntry?.newSubs ?? 0;
-              const caHier      = yEntry?.revenue ?? 0;
-              const todayEntry  = getTodayEntry(stats.entries);
-              const subsAujourd = todayEntry?.newSubs ?? 0;
-              const caAujourd   = todayEntry?.revenue ?? 0;
-              const subsMois    = sumMonthField(stats.entries, 'newSubs');
-              const caMois      = sumMonthField(stats.entries, 'revenue');
+              const stats      = data[model] ?? { totalSubs: 0, subsLast30Days: 0, entries: [] };
+              const yEntry     = getYesterdayEntry(stats.entries);
+              const caHier     = yEntry?.revenue ?? 0;
+              const todayEntry = getTodayEntry(stats.entries);
+              const caAujourd  = todayEntry?.revenue ?? 0;
+              const caMois     = sumMonthField(stats.entries, 'revenue');
 
               const isActive = (f: CellField) => cellEdit?.model === model && cellEdit?.field === f;
               const activate = (f: CellField) => () => { if (canEdit) setCellEdit({ model, field: f }); };
@@ -376,17 +354,7 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
                     />
                   </td>
 
-                  {/* Subs hier — daily editable */}
-                  <td className="px-4 py-2" style={{ backgroundColor: 'rgba(245,158,11,0.06)' }}>
-                    <EditCell
-                      value={subsHier} isActive={isActive('subsHier')} canEdit={canEdit}
-                      onActivate={activate('subsHier')}
-                      onSave={(v) => { saveYesterdayField(model, 'newSubs', v); setCellEdit(null); }}
-                      onCancel={cancel}
-                    />
-                  </td>
-
-                  {/* CA hier — daily editable */}
+                  {/* CA hier — auto-synced (OF: Infloww) or manually editable */}
                   <td className="px-4 py-2" style={{ backgroundColor: 'rgba(245,158,11,0.06)' }}>
                     <EditCell
                       value={caHier} isActive={isActive('caHier')} canEdit={canEdit} isCurrency currencySym={currencySym}
@@ -396,22 +364,12 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
                     />
                   </td>
 
-                  {/* Subs aujourd'hui — live, read-only */}
-                  <td className="px-4 py-2 text-right text-sm" style={{ backgroundColor: 'rgba(59,130,246,0.05)' }}>
-                    <span className={subsAujourd > 0 ? 'font-semibold text-blue-400' : 'text-[#444]'}>{fmtN(subsAujourd)}</span>
-                  </td>
-
-                  {/* CA aujourd'hui — live, read-only */}
+                  {/* CA aujourd'hui — live from Infloww (OF), read-only */}
                   <td className="px-4 py-2 text-right text-sm" style={{ backgroundColor: 'rgba(59,130,246,0.05)' }}>
                     <span className={caAujourd > 0 ? 'font-semibold text-blue-400' : 'text-[#444]'}>{fmtCA(caAujourd, currencySym)}</span>
                   </td>
 
-                  {/* Subs mois — calculated */}
-                  <td className="px-4 py-2 text-right text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.05)' }}>
-                    <span className={subsMois > 0 ? 'font-semibold text-emerald-400' : 'text-[#444]'}>{fmtN(subsMois)}</span>
-                  </td>
-
-                  {/* CA mois — calculated */}
+                  {/* CA mois — sum of ALL entries from the 1st to today */}
                   <td className="px-4 py-2 text-right text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.05)' }}>
                     <span className={caMois > 0 ? 'font-semibold text-emerald-400' : 'text-[#444]'}>{fmtCA(caMois, currencySym)}</span>
                   </td>
@@ -529,7 +487,7 @@ export default function VueGlobale() {
       <div>
         <h2 className="text-xl font-bold text-white">Vue Globale</h2>
         <p className="text-sm text-[#888] mt-0.5">
-          Saisir <span className="font-medium text-[#C9A84C]">Subs hier</span> et <span className="font-medium text-[#C9A84C]">CA hier</span> chaque jour — les totaux du mois s'accumulent automatiquement
+          <span className="font-medium text-[#C9A84C]">CA hier</span> et <span className="font-medium text-blue-400">CA aujourd'hui</span> se synchronisent automatiquement via Infloww — <span className="font-medium text-emerald-400">CA Mois</span> cumule depuis le 1er
         </p>
       </div>
       <PlatformSection platform="of"  models={OF_MODELS}  accentColor="#a855f7" canEdit={canEdit} refreshKey={refreshKey} syncBadge={syncBadge} />
