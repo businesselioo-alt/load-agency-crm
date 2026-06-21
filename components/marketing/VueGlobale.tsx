@@ -209,12 +209,30 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
   const [data,          setData]          = useState<PlatformData>({});
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [cellEdit,      setCellEdit]      = useState<{ model: string; field: CellField } | null>(null);
+  const [saveStatus,    setSaveStatus]    = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
+  const [saveError,     setSaveError]     = useState('');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadPlatformData(platform, models).then(setData);
   }, [platform, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function persist(d: PlatformData) { setData(d); savePlatformData(platform, d); }
+  useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
+
+  async function persist(d: PlatformData) {
+    setData(d); // optimistic update
+    setSaveStatus('saving');
+    const res = await savePlatformData(platform, d);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (res.success) {
+      setSaveStatus('ok');
+      saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2500);
+    } else {
+      setSaveStatus('error');
+      setSaveError(res.error ?? 'Erreur inconnue');
+      console.error('[VueGlobale] persist échoué — vérifier RLS sur vg_model_stats :', res.error);
+    }
+  }
 
   function updateStats(model: string, patch: Partial<ModelStats>) {
     persist({ ...data, [model]: { ...data[model], ...patch } });
@@ -254,7 +272,27 @@ function PlatformSection({ platform, models, accentColor, canEdit, refreshKey, s
         <span className="text-xs text-[#555] bg-white/[0.04] border border-white/[0.08] px-2 py-0.5 rounded-full">{models.length} models</span>
         <div className="ml-auto flex items-center gap-3">
           {syncBadge}
-          {canEdit && <p className="text-[11px] text-[#555]">Cliquer une cellule pour modifier</p>}
+          {canEdit && (
+            <div className="flex items-center gap-1.5 min-w-[140px] justify-end">
+              {saveStatus === 'saving' && (
+                <span className="text-[11px] text-[#888] flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#888] animate-pulse flex-shrink-0" />
+                  Enregistrement…
+                </span>
+              )}
+              {saveStatus === 'ok' && (
+                <span className="text-[11px] text-emerald-400 flex items-center gap-1">✓ Enregistré</span>
+              )}
+              {saveStatus === 'error' && (
+                <span className="text-[11px] text-red-400 flex items-center gap-1" title={saveError}>
+                  ⚠ Erreur sauvegarde
+                </span>
+              )}
+              {saveStatus === 'idle' && (
+                <p className="text-[11px] text-[#555]">Cliquer une cellule pour modifier</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

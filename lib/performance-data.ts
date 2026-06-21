@@ -69,7 +69,10 @@ export async function loadPlatformData(platform: VGPlatform, models: string[]): 
   return result;
 }
 
-export async function savePlatformData(platform: VGPlatform, data: PlatformData): Promise<void> {
+export async function savePlatformData(
+  platform: VGPlatform,
+  data: PlatformData,
+): Promise<{ success: boolean; error?: string }> {
   const statsRows = Object.entries(data).map(([modelName, stats]) => ({
     platform,
     model_name: modelName,
@@ -90,10 +93,32 @@ export async function savePlatformData(platform: VGPlatform, data: PlatformData)
     }))
   );
 
-  await Promise.all([
-    supabase.from('vg_model_stats').upsert(statsRows, { onConflict: 'platform,model_name' }),
-    supabase.from('vg_daily_entries').upsert(entryRows, { onConflict: 'platform,model_name,date' }),
-  ]);
+  // Stats upsert first — this is the one most likely to fail due to missing RLS policy
+  const statsRes = await supabase
+    .from('vg_model_stats')
+    .upsert(statsRows, { onConflict: 'platform,model_name' });
+
+  if (statsRes.error) {
+    console.error('[savePlatformData] vg_model_stats upsert failed:',
+      statsRes.error.code, statsRes.error.message,
+      statsRes.error.hint ?? '', statsRes.error.details ?? '');
+    return { success: false, error: `vg_model_stats (${statsRes.error.code}): ${statsRes.error.message}` };
+  }
+
+  if (entryRows.length > 0) {
+    const entriesRes = await supabase
+      .from('vg_daily_entries')
+      .upsert(entryRows, { onConflict: 'platform,model_name,date' });
+
+    if (entriesRes.error) {
+      console.error('[savePlatformData] vg_daily_entries upsert failed:',
+        entriesRes.error.code, entriesRes.error.message,
+        entriesRes.error.hint ?? '', entriesRes.error.details ?? '');
+      return { success: false, error: `vg_daily_entries (${entriesRes.error.code}): ${entriesRes.error.message}` };
+    }
+  }
+
+  return { success: true };
 }
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
