@@ -355,11 +355,11 @@ export default function PlanningCalendar({ config }: PlanningCalendarProps) {
   if (!ready) return null;
 
   return (
-    <div className="p-6 min-h-full">
+    <div className="p-4 sm:p-6 min-h-full">
 
       {/* ── Top bar ── */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5 sm:mb-6">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 min-w-0">
           <span className="font-bold text-[#f0f0f0]">{config.title}</span>
           <span className="text-[#333]">·</span>
           <span className="text-sm text-[#555]">max 2 SFS / jour</span>
@@ -442,7 +442,7 @@ export default function PlanningCalendar({ config }: PlanningCalendarProps) {
       </div>
 
       {/* ── View tabs ── */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
         <div className="flex gap-1 bg-[#0d0d0d] border border-white/[0.08] rounded-xl p-1">
           {(['upcoming', 'history'] as const).map((v) => {
             const isActive = view === v;
@@ -467,7 +467,7 @@ export default function PlanningCalendar({ config }: PlanningCalendarProps) {
           })}
         </div>
         {view === 'upcoming' && (
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
             {(Object.keys(DARK_STATUS) as SlotStatus[]).map((s) => {
               const cfg  = DARK_STATUS[s];
               const scfg = STATUS_CONFIG[s];
@@ -486,65 +486,73 @@ export default function PlanningCalendar({ config }: PlanningCalendarProps) {
 
       {/* ── Calendar ── */}
       {view === 'upcoming' && (
-        <div className="bg-[#0d0d0d] rounded-2xl border border-white/[0.08] overflow-hidden">
-          {/* Month nav */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08]">
-            <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}
-              className="p-2 rounded-xl hover:bg-white/[0.05] hover:border-[#C9A84C]/30 border border-transparent transition text-[#555] hover:text-[#f0f0f0]">
-              <ChevronLeft size={17} />
-            </button>
-            <div className="flex items-center gap-3">
-              <h2 className="font-semibold text-[#f0f0f0]">{MONTHS_FR[month]} {year}</h2>
-              {(year !== today.getFullYear() || month !== today.getMonth()) && (
-                <button
-                  onClick={() => setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1))}
-                  className="text-xs font-semibold px-2.5 py-1 rounded-lg transition hover:brightness-110"
-                  style={{ color: '#000', backgroundColor: GOLD }}>
-                  Aujourd'hui
-                </button>
-              )}
+        <div className="relative">
+          <div className="overflow-x-auto">
+            <div className="min-w-[580px]">
+              <div className="bg-[#0d0d0d] rounded-2xl border border-white/[0.08] overflow-hidden">
+                {/* Month nav */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08]">
+                  <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}
+                    className="p-2 rounded-xl hover:bg-white/[0.05] hover:border-[#C9A84C]/30 border border-transparent transition text-[#555] hover:text-[#f0f0f0]">
+                    <ChevronLeft size={17} />
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <h2 className="font-semibold text-[#f0f0f0]">{MONTHS_FR[month]} {year}</h2>
+                    {(year !== today.getFullYear() || month !== today.getMonth()) && (
+                      <button
+                        onClick={() => setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1))}
+                        className="text-xs font-semibold px-2.5 py-1 rounded-lg transition hover:brightness-110"
+                        style={{ color: '#000', backgroundColor: GOLD }}>
+                        Aujourd'hui
+                      </button>
+                    )}
+                  </div>
+                  <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}
+                    className="p-2 rounded-xl hover:bg-white/[0.05] border border-transparent hover:border-[#C9A84C]/30 transition text-[#555] hover:text-[#f0f0f0]">
+                    <ChevronRight size={17} />
+                  </button>
+                </div>
+
+                {/* Day headers */}
+                <div className="grid grid-cols-7 border-b border-white/[0.05]">
+                  {DAYS_FR.map((d) => (
+                    <div key={d} className="py-3 text-center text-[10px] font-semibold text-[#555] uppercase tracking-widest">{d}</div>
+                  ))}
+                </div>
+
+                {/* Grid */}
+                <div className="grid grid-cols-7 gap-1 p-2">
+                  {cells.map((cell, idx) => {
+                    const ds = dateStr(cell.date);
+                    const daySlots = modelSlots.filter((s) => s.date === ds);
+                    return (
+                      <DayCell key={idx} day={cell.day} dateString={ds}
+                        isToday={ds === todayStr} isPast={ds < todayStr}
+                        isCurrentMonth={cell.isCurrentMonth} slots={daySlots}
+                        onAdd={(date) => setModal({ open: true, mode: 'add', date, model: selectedModel })}
+                        onEdit={(slot) => setModal({ open: true, mode: 'edit', slot })}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* Footer legend */}
+                <div className="hidden sm:flex items-center gap-5 px-6 py-3 border-t border-white/[0.05] text-xs text-[#555]">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded border" style={{ borderColor: GOLD, boxShadow: `0 0 5px ${GOLD}50` }} />
+                    Aujourd'hui
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded bg-white/[0.02] border border-white/[0.08]" />
+                    Jours passés
+                  </span>
+                  <span className="ml-auto">Cliquez sur un slot pour le modifier</span>
+                </div>
+              </div>
             </div>
-            <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}
-              className="p-2 rounded-xl hover:bg-white/[0.05] border border-transparent hover:border-[#C9A84C]/30 transition text-[#555] hover:text-[#f0f0f0]">
-              <ChevronRight size={17} />
-            </button>
           </div>
-
-          {/* Day headers */}
-          <div className="grid grid-cols-7 border-b border-white/[0.05]">
-            {DAYS_FR.map((d) => (
-              <div key={d} className="py-3 text-center text-[10px] font-semibold text-[#555] uppercase tracking-widest">{d}</div>
-            ))}
-          </div>
-
-          {/* Grid */}
-          <div className="grid grid-cols-7 gap-1 p-2">
-            {cells.map((cell, idx) => {
-              const ds = dateStr(cell.date);
-              const daySlots = modelSlots.filter((s) => s.date === ds);
-              return (
-                <DayCell key={idx} day={cell.day} dateString={ds}
-                  isToday={ds === todayStr} isPast={ds < todayStr}
-                  isCurrentMonth={cell.isCurrentMonth} slots={daySlots}
-                  onAdd={(date) => setModal({ open: true, mode: 'add', date, model: selectedModel })}
-                  onEdit={(slot) => setModal({ open: true, mode: 'edit', slot })}
-                />
-              );
-            })}
-          </div>
-
-          {/* Footer legend */}
-          <div className="flex items-center gap-5 px-6 py-3 border-t border-white/[0.05] text-xs text-[#555]">
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded border" style={{ borderColor: GOLD, boxShadow: `0 0 5px ${GOLD}50` }} />
-              Aujourd'hui
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-white/[0.02] border border-white/[0.08]" />
-              Jours passés
-            </span>
-            <span className="ml-auto">Cliquez sur un slot pour le modifier</span>
-          </div>
+          {/* Right-edge fade — scroll affordance on mobile */}
+          <div className="pointer-events-none absolute top-0 right-0 h-full w-10 bg-gradient-to-l from-[#0a0a0a] to-transparent sm:hidden rounded-r-2xl" />
         </div>
       )}
 
