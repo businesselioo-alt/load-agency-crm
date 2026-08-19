@@ -34,7 +34,7 @@ export const ROLE_DEFAULT_MODULES: Record<UserRole, ModuleKey[]> = {
   admin:     ['dashboard','models','invoices','compta','marketing_mym','marketing_of','chatting','calendar','settings'],
   manager:   ['dashboard','models','compta','marketing_mym','marketing_of','calendar'],
   chatter:   ['dashboard','chatting'], compta: ['dashboard','invoices','compta'],
-  marketing: ['dashboard','marketing_mym','marketing_of','calendar'], model: ['dashboard','models'],
+  marketing: ['dashboard','marketing_mym','marketing_of','calendar'], model: ['dashboard','models','compta'],
 };
 
 export const USERS_LS_KEY   = 'crm_users_v2';
@@ -44,7 +44,7 @@ export const DEMO_USERS: CRMUser[] = [
   { id: 'u1', firstName: 'Admin',     lastName: '',      name: 'Admin',           email: 'admin@loadagency.com',     password: 'admin123',   role: 'admin',     modules: ['dashboard','models','invoices','compta','marketing_mym','marketing_of','chatting','calendar','settings'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'u2', firstName: 'Sadie',     lastName: '',      name: 'Sadie',           email: 'sadie@loadagency.com',     password: 'sadie123',   role: 'manager',   modules: ['dashboard','models','compta','marketing_mym','marketing_of','calendar'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'u3', firstName: 'Kate',      lastName: '',      name: 'Kate',            email: 'kate@loadagency.com',      password: 'kate123',    role: 'manager',   modules: ['dashboard','models','compta','marketing_mym','marketing_of','calendar'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u4', firstName: 'Charlotte', lastName: 'Grace', name: 'Charlotte Grace', email: 'charlotte@loadagency.com', password: 'model123',   role: 'model',     modules: ['dashboard','models'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u4', firstName: 'Charlotte', lastName: 'Grace', name: 'Charlotte Grace', email: 'charlotte@loadagency.com', password: 'model123',   role: 'model',     modules: ['dashboard','models','compta'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'u5', firstName: 'Chatter',   lastName: '',      name: 'Chatter',         email: 'chatter@loadagency.com',   password: 'chatter123', role: 'chatter',   modules: ['dashboard','chatting'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'u6', firstName: 'Comptable', lastName: '',      name: 'Comptable',       email: 'compta@loadagency.com',    password: 'compta123',  role: 'compta',    modules: ['dashboard','invoices','compta'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'u7', firstName: 'Marketing', lastName: '',      name: 'Marketing',       email: 'marketing@loadagency.com', password: 'mkt123',     role: 'marketing', modules: ['dashboard','marketing_mym','marketing_of','calendar'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },

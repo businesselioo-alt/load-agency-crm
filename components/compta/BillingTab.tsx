@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Save, Search, Building2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Model } from '@/lib/data';
 import {
-  ModelBilling, SaveResult, COMPANY_TYPES, billingDisplayName, emptyBilling, loadAllBilling,
-  missingFields, safeLoadModels, saveBilling, saveCommission,
+  ModelBilling, SaveResult, COMPANY_TYPES, billingDisplayName,
+  emptyBilling, loadAllBilling, missingFields, safeLoadModels, saveBilling, saveCommission,
 } from '@/lib/compta';
 import { Card, Field, TextInput, TextArea, GoldButton, Banner, EmptyState, SectionTitle } from './ui';
 
