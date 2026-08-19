@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 
 export type UserRole = 'admin' | 'manager' | 'chatter' | 'compta' | 'marketing' | 'model';
-export type ModuleKey = 'dashboard' | 'models' | 'invoices' | 'marketing_mym' | 'marketing_of' | 'chatting' | 'calendar' | 'settings';
+export type ModuleKey = 'dashboard' | 'models' | 'invoices' | 'compta' | 'marketing_mym' | 'marketing_of' | 'chatting' | 'calendar' | 'settings';
 
 export interface CRMUser {
   id: string; firstName: string; lastName: string; name: string;
@@ -24,15 +24,16 @@ export const ROLE_COLORS: Record<UserRole, { bg: string; text: string; border: s
 export const MODULE_CONFIG: { key: ModuleKey; label: string; group?: string }[] = [
   { key: 'dashboard', label: 'Dashboard' }, { key: 'models', label: 'Models' },
   { key: 'invoices', label: 'Invoices' },
+  { key: 'compta', label: 'Compta Modèle' },
   { key: 'marketing_mym', label: 'Marketing SFS MYM', group: 'Marketing' },
   { key: 'marketing_of',  label: 'Marketing SFS OF',  group: 'Marketing' },
   { key: 'chatting', label: 'Chatting' }, { key: 'calendar', label: 'Calendrier' },
   { key: 'settings', label: 'Paramètres' },
 ];
 export const ROLE_DEFAULT_MODULES: Record<UserRole, ModuleKey[]> = {
-  admin:     ['dashboard','models','invoices','marketing_mym','marketing_of','chatting','calendar','settings'],
-  manager:   ['dashboard','models','marketing_mym','marketing_of','calendar'],
-  chatter:   ['dashboard','chatting'], compta: ['dashboard','invoices'],
+  admin:     ['dashboard','models','invoices','compta','marketing_mym','marketing_of','chatting','calendar','settings'],
+  manager:   ['dashboard','models','compta','marketing_mym','marketing_of','calendar'],
+  chatter:   ['dashboard','chatting'], compta: ['dashboard','invoices','compta'],
   marketing: ['dashboard','marketing_mym','marketing_of','calendar'], model: ['dashboard','models'],
 };
 
@@ -40,12 +41,12 @@ export const USERS_LS_KEY   = 'crm_users_v2';
 export const SESSION_LS_KEY = 'crm_session_v1';
 
 export const DEMO_USERS: CRMUser[] = [
-  { id: 'u1', firstName: 'Admin',     lastName: '',      name: 'Admin',           email: 'admin@loadagency.com',     password: 'admin123',   role: 'admin',     modules: ['dashboard','models','invoices','marketing_mym','marketing_of','chatting','calendar','settings'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u2', firstName: 'Sadie',     lastName: '',      name: 'Sadie',           email: 'sadie@loadagency.com',     password: 'sadie123',   role: 'manager',   modules: ['dashboard','models','marketing_mym','marketing_of','calendar'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u3', firstName: 'Kate',      lastName: '',      name: 'Kate',            email: 'kate@loadagency.com',      password: 'kate123',    role: 'manager',   modules: ['dashboard','models','marketing_mym','marketing_of','calendar'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u1', firstName: 'Admin',     lastName: '',      name: 'Admin',           email: 'admin@loadagency.com',     password: 'admin123',   role: 'admin',     modules: ['dashboard','models','invoices','compta','marketing_mym','marketing_of','chatting','calendar','settings'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u2', firstName: 'Sadie',     lastName: '',      name: 'Sadie',           email: 'sadie@loadagency.com',     password: 'sadie123',   role: 'manager',   modules: ['dashboard','models','compta','marketing_mym','marketing_of','calendar'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u3', firstName: 'Kate',      lastName: '',      name: 'Kate',            email: 'kate@loadagency.com',      password: 'kate123',    role: 'manager',   modules: ['dashboard','models','compta','marketing_mym','marketing_of','calendar'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'u4', firstName: 'Charlotte', lastName: 'Grace', name: 'Charlotte Grace', email: 'charlotte@loadagency.com', password: 'model123',   role: 'model',     modules: ['dashboard','models'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'u5', firstName: 'Chatter',   lastName: '',      name: 'Chatter',         email: 'chatter@loadagency.com',   password: 'chatter123', role: 'chatter',   modules: ['dashboard','chatting'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'u6', firstName: 'Comptable', lastName: '',      name: 'Comptable',       email: 'compta@loadagency.com',    password: 'compta123',  role: 'compta',    modules: ['dashboard','invoices'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'u6', firstName: 'Comptable', lastName: '',      name: 'Comptable',       email: 'compta@loadagency.com',    password: 'compta123',  role: 'compta',    modules: ['dashboard','invoices','compta'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'u7', firstName: 'Marketing', lastName: '',      name: 'Marketing',       email: 'marketing@loadagency.com', password: 'mkt123',     role: 'marketing', modules: ['dashboard','marketing_mym','marketing_of','calendar'], status: 'active', createdAt: '2026-01-01T00:00:00Z' },
 ];
 

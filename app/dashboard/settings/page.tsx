@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, X, Edit2, Trash2, Eye, EyeOff, Check,
   LayoutDashboard, Users, Receipt, TrendingUp, MessageSquare,
-  Calendar, Settings, Shield, AlertCircle,
+  Calendar, Settings, Shield, AlertCircle, Calculator,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -19,6 +19,7 @@ const MODULE_ICONS: Record<ModuleKey, React.ElementType> = {
   dashboard:     LayoutDashboard,
   models:        Users,
   invoices:      Receipt,
+  compta:        Calculator,
   marketing_mym: TrendingUp,
   marketing_of:  TrendingUp,
   chatting:      MessageSquare,
