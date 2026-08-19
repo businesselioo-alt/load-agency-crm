@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, X, AlertCircle } from 'lucide-react';
+import { Check, X, AlertCircle, FileText, Download, Send } from 'lucide-react';
 import { Model } from '@/lib/data';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -10,8 +10,10 @@ import {
   AgencySettings, DEFAULT_AGENCY,
   billingDisplayName, computeCommission, currentPeriod, emptyInvoice,
   formatMoney, hasBankAccount, isBillable, loadAgency,
-  loadAllBilling, loadInvoices, missingFields, periodLabel, recentPeriods, safeLoadModels, saveInvoice,
+  loadAllBilling, loadInvoices, missingFields, periodLabel, recentPeriods, safeLoadModels,
+  saveInvoice, takeNextInvoiceNumber, emptyBilling,
 } from '@/lib/compta';
+import { downloadInvoicePdf, invoicePdfBlobUrl } from '@/lib/pdf-invoice';
 import { Card, TextInput, Banner, EmptyState } from './ui';
 
 /**
@@ -114,6 +116,48 @@ export default function ValidationTab() {
   // Les totaux sont en USD : c'est la devise de facturation. Le pendant non
   // encore validé n'a pas de taux figé, on l'affiche donc dans sa devise
   // d'origine plutôt que d'inventer une conversion.
+  /**
+   * Réserve un numéro si la facture n'en a pas encore, puis ouvre ou télécharge
+   * le PDF. Le numéro n'est attribué qu'une fois : rouvrir l'aperçu ne consomme
+   * pas un nouveau numéro.
+   */
+  const withPdf = async (m: Model, action: 'preview' | 'download') => {
+    const b = billing[m.id] ?? emptyBilling(m.id, m.name);
+    let row = rowFor(m);
+    setBusyId(m.id);
+    setError(null);
+
+    if (!row.invoiceNumber) {
+      const res = await takeNextInvoiceNumber();
+      if ('error' in res) {
+        setBusyId(null);
+        setError(res.error);
+        return;
+      }
+      row = { ...row, invoiceNumber: res.number, issuedAt: row.issuedAt || new Date().toISOString().slice(0, 10) };
+      const saved = await saveInvoice(row);
+      if (!saved.ok) {
+        setBusyId(null);
+        setError(saved.error ?? "Numéro réservé mais facture non enregistrée.");
+        return;
+      }
+      setInvoices((prev) => ({ ...prev, [m.id]: row }));
+    }
+
+    const ctx = { invoice: row, billing: b, agency, modelName: m.name };
+    try {
+      if (action === 'download') await downloadInvoicePdf(ctx);
+      else window.open(await invoicePdfBlobUrl(ctx), '_blank');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Génération du PDF impossible.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const markSent = (m: Model) =>
+    persist(m, { status: 'facturee', issuedAt: rowFor(m).issuedAt || new Date().toISOString().slice(0, 10) });
+
   const totals = useMemo(() => {
     const pending: Record<string, number> = {};
     const billable: Record<string, number> = {};
@@ -281,8 +325,11 @@ export default function ValidationTab() {
                         >
                           {STATUS_LABELS[i.status]}
                         </span>
+                        {i.invoiceNumber && (
+                          <p className="text-[10px] text-[#C9A84C] mt-1">{i.invoiceNumber}</p>
+                        )}
                         {i.validatedBy && isBillable(i.status) && (
-                          <p className="text-[10px] text-[#444] mt-1">par {i.validatedBy}</p>
+                          <p className="text-[10px] text-[#444] mt-0.5">par {i.validatedBy}</p>
                         )}
                       </td>
 
@@ -337,14 +384,44 @@ export default function ValidationTab() {
                               </>
                             )}
                             {locked && (
-                              <button
-                                onClick={() => persist(m, { status: 'declare', validatedBy: '', validatedAt: '' })}
-                                disabled={busyId === m.id}
-                                title="Annuler la validation"
-                                className="px-2 py-1 rounded-lg text-[11px] text-[#555] hover:text-white transition"
-                              >
-                                Dévalider
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => withPdf(m, 'preview')}
+                                  disabled={busyId === m.id}
+                                  title="Aperçu de la facture"
+                                  className="p-2 text-[#555] hover:text-[#C9A84C] transition disabled:opacity-30"
+                                >
+                                  <FileText size={15} />
+                                </button>
+                                <button
+                                  onClick={() => withPdf(m, 'download')}
+                                  disabled={busyId === m.id}
+                                  title="Télécharger le PDF"
+                                  className="p-2 text-[#555] hover:text-[#C9A84C] transition disabled:opacity-30"
+                                >
+                                  <Download size={15} />
+                                </button>
+                                {i.status === 'valide' && (
+                                  <button
+                                    onClick={() => markSent(m)}
+                                    disabled={busyId === m.id || !i.invoiceNumber}
+                                    title={i.invoiceNumber ? 'Marquer comme envoyée' : "Génère d'abord la facture"}
+                                    className="p-2 text-[#555] hover:text-violet-300 transition disabled:opacity-30"
+                                  >
+                                    <Send size={15} />
+                                  </button>
+                                )}
+                                {i.status === 'valide' && !i.invoiceNumber && (
+                                  <button
+                                    onClick={() => persist(m, { status: 'declare', validatedBy: '', validatedAt: '' })}
+                                    disabled={busyId === m.id}
+                                    title="Annuler la validation"
+                                    className="px-2 py-1 rounded-lg text-[11px] text-[#555] hover:text-white transition"
+                                  >
+                                    Dévalider
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         )}

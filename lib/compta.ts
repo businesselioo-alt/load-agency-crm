@@ -724,3 +724,19 @@ export async function consolidate(
   }
   return round2(total);
 }
+
+/**
+ * Réserve le prochain numéro de facture et incrémente le compteur.
+ *
+ * Le compteur vit dans crm_agency_settings : deux validations simultanées
+ * pourraient théoriquement obtenir le même numéro. À l'échelle d'une agence
+ * où une seule personne facture, le risque est nul ; si plusieurs managers
+ * facturent en parallèle, il faudra passer par une séquence Postgres.
+ */
+export async function takeNextInvoiceNumber(): Promise<{ number: string } | { error: string }> {
+  const a = await loadAgency();
+  const number = formatInvoiceNumber(a.invoicePrefix, a.nextNumber);
+  const res = await saveAgency({ ...a, nextNumber: a.nextNumber + 1 });
+  if (!res.ok) return { error: res.error ?? 'Impossible de réserver le numéro de facture.' };
+  return { number };
+}
