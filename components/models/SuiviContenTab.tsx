@@ -9,11 +9,12 @@ import {
   recentPeriods, safeLoadModels,
 } from '@/lib/compta';
 import {
-  ContentCategory, ContentEntry,
-  addEntry, deleteEntry, entryTitle, loadEntries, markSeen, saveDriveLink,
+  ContentCategory, ContentEntry, ContentRequest,
+  addEntry, deleteEntry, entryTitle, loadEntries, loadRequests, markSeen, saveDriveLink,
 } from '@/lib/contenu';
 import { Banner, EmptyState, TextInput } from '@/components/compta/ui';
 import ContentCard from './ContentCard';
+import ModelRequests from './ModelRequests';
 
 /**
  * Suivi Contenu.
@@ -28,6 +29,7 @@ export default function SuiviContenTab() {
   const [models, setModels] = useState<Model[]>([]);
   const [me, setMe] = useState<Model | null>(null);
   const [entries, setEntries] = useState<ContentEntry[]>([]);
+  const [requests, setRequests] = useState<ContentRequest[]>([]);
   const [month, setMonth] = useState(currentPeriod());
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -36,10 +38,16 @@ export default function SuiviContenTab() {
 
   useEffect(() => {
     (async () => {
-      const [m, billing, e] = await Promise.all([safeLoadModels(), loadAllBilling(), loadEntries()]);
+      const [m, billing, e, r] = await Promise.all([
+        safeLoadModels(),
+        loadAllBilling(),
+        loadEntries(),
+        loadRequests(),
+      ]);
       setModels(m);
       setMe(findModelForUser(m, billing, user));
       setEntries(e);
+      setRequests(r);
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,14 +68,24 @@ export default function SuiviContenTab() {
     [entries, isModel, month],
   );
 
-  const add = async (model: Model, category: ContentCategory, count: number) => {
+  const add = async (
+    model: Model,
+    category: ContentCategory,
+    count: number,
+    requestId?: string,
+  ) => {
     setBusy(true);
     setError(null);
     const created: ContentEntry[] = [];
     for (let n = 0; n < count; n += 1) {
       // Séquentiel et non parallèle : chaque insertion lit le dernier numéro
       // attribué, deux insertions simultanées prendraient le même.
-      const res = await addEntry({ modelId: model.id, category, addedBy: user?.name ?? '' });
+      const res = await addEntry({
+        modelId: model.id,
+        category,
+        addedBy: user?.name ?? '',
+        requestId,
+      });
       if (!res.ok) {
         setError(res.error);
         break;
@@ -170,6 +188,15 @@ export default function SuiviContenTab() {
       )}
 
       {error && <Banner kind="error" message={error} />}
+
+      {isModel && me && (
+        <ModelRequests
+          requests={requests.filter((r) => r.modelId === me.id)}
+          entries={entries.filter((e) => e.modelId === me.id)}
+          busy={busy}
+          onDeliver={(r, count) => add(me, r.category, count, r.id)}
+        />
+      )}
 
       {visibleModels.length === 0 ? (
         <EmptyState

@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { BarChart2, BookOpen } from 'lucide-react';
+import { BarChart2, BookOpen, ClipboardList } from 'lucide-react';
 import SuiviContenTab from '@/components/models/SuiviContenTab';
+import RequestsTab from '@/components/models/RequestsTab';
 import ResourcesTab from '@/components/models/ResourcesTab';
 import { useAuth } from '@/contexts/AuthContext';
 
-type TabId = 'suivi' | 'ressources';
+type TabId = 'suivi' | 'demandes' | 'ressources';
 
 export default function ManagementPage() {
   const { user } = useAuth();
@@ -16,6 +17,7 @@ export default function ManagementPage() {
     ? [{ id: 'suivi', label: 'Mon contenu', icon: BarChart2 }]
     : [
         { id: 'suivi', label: 'Suivi Contenu', icon: BarChart2 },
+        { id: 'demandes', label: 'Demandes', icon: ClipboardList },
         { id: 'ressources', label: 'Ressources', icon: BookOpen },
       ];
 
@@ -53,7 +55,9 @@ export default function ManagementPage() {
         </div>
       )}
 
-      {activeTab === 'suivi' ? <SuiviContenTab /> : <ResourcesTab />}
+      {activeTab === 'suivi' && <SuiviContenTab />}
+      {activeTab === 'demandes' && <RequestsTab />}
+      {activeTab === 'ressources' && <ResourcesTab />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ExternalLink, Plus, X, Check, Link2, Loader2 } from 'lucide-react';
+import { ExternalLink, Plus, X, Check, Link2, Loader2, HardDrive } from 'lucide-react';
 import { Model } from '@/lib/data';
 import {
   CategoryStat, ContentCategory, ContentEntry,
@@ -202,15 +202,21 @@ function CategoryRow({
           entriesInMonth.map((e) => (
             <span
               key={e.id}
-              title={`${category.unit} ${e.seq} · ajouté le ${formatDay(e.addedAt)}${
-                e.addedBy ? ` par ${e.addedBy}` : ''
-              }`}
+              title={[
+                `${category.unit} ${e.seq}`,
+                e.label,
+                `ajouté le ${formatDay(e.addedAt)}`,
+                e.source === 'drive' ? 'détecté sur le Drive' : e.addedBy ? `par ${e.addedBy}` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
               className={`group inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] border ${
                 isAgency && !e.seen
                   ? 'bg-[#C9A84C]/15 border-[#C9A84C]/30 text-[#C9A84C]'
                   : 'bg-[#161616] border-[#222] text-[#777]'
               }`}
             >
+              {e.source === 'drive' && <HardDrive size={9} className="opacity-70" />}
               #{e.seq}
               <button
                 onClick={() => onDelete(e)}
