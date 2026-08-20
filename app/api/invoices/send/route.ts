@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
-  loadAgency, loadBillingFor, loadInvoice, missingFields, safeLoadModels,
-  agencyMissingFields, hasBankAccount, isBillable, saveInvoice,
+  loadAgency, loadBillingFor, loadInvoices, missingFields, safeLoadModels,
+  agencyMissingFields, buildGroups, hasBankAccount, isGroupBillable, saveGroup,
 } from '@/lib/compta';
 import { buildInvoicePdf, invoiceFileName } from '@/lib/pdf-invoice';
 import { invoiceEmail } from '@/lib/email-invoice';
@@ -32,45 +32,52 @@ export async function POST(req: Request) {
     );
   }
 
-  let payload: { modelId?: string; period?: string };
+  let payload: { modelId?: string; period?: string; currency?: string };
   try {
     payload = await req.json();
   } catch {
     return NextResponse.json({ error: 'Corps de requête invalide.' }, { status: 400 });
   }
 
-  const { modelId, period } = payload;
+  const { modelId, period, currency } = payload;
   if (!modelId || !period) {
     return NextResponse.json({ error: 'Champs requis : modelId, period.' }, { status: 400 });
   }
 
-  const [agency, billing, invoice, models] = await Promise.all([
+  const [agency, billing, periodInvoices, models] = await Promise.all([
     loadAgency(),
     loadBillingFor(modelId),
-    loadInvoice(modelId, period),
+    loadInvoices(period),
     safeLoadModels(),
   ]);
 
   const model = models.find((m) => m.id === modelId);
-  if (!invoice || !billing || !model) {
-    return NextResponse.json({ error: 'Facture, fiche modèle ou modèle introuvable.' }, { status: 404 });
+  if (!billing || !model) {
+    return NextResponse.json({ error: 'Fiche modèle ou modèle introuvable.' }, { status: 404 });
   }
 
+  // La facture regroupe toutes les plateformes de la modèle sur la période.
+  const rows = Object.values(periodInvoices).filter(
+    (i) => i.modelId === modelId && (!currency || i.currency === currency),
+  );
+  const group = buildGroups(rows)[0];
+  if (!group) {
+    return NextResponse.json({ error: 'Aucune ligne à facturer pour cette période.' }, { status: 404 });
+  }
+  const invoice = group.lines[0];
+
   // ── Garde-fous : on refuse d'envoyer un document incomplet ────────────────
-  if (!isBillable(invoice.status)) {
+  if (!isGroupBillable(group)) {
     return NextResponse.json(
-      { error: "Le montant n'est pas validé. Validez-le avant d'envoyer la facture." },
+      { error: "Toutes les lignes ne sont pas validées. Validez-les avant d'envoyer la facture." },
       { status: 409 },
     );
   }
-  if (!invoice.invoiceNumber) {
+  if (!group.invoiceNumber) {
     return NextResponse.json(
       { error: "La facture n'a pas encore de numéro. Générez-la d'abord." },
       { status: 409 },
     );
-  }
-  if (!(invoice.amount > 0)) {
-    return NextResponse.json({ error: 'Montant nul, rien à facturer.' }, { status: 409 });
   }
   if (!billing.email) {
     return NextResponse.json(
@@ -92,9 +99,9 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   }
-  if (!hasBankAccount(agency, invoice.currency)) {
+  if (!hasBankAccount(agency, group.currency)) {
     return NextResponse.json(
-      { error: `Aucun compte ${invoice.currency} renseigné dans l'onglet Agence.` },
+      { error: `Aucun compte ${group.currency} renseigné dans l'onglet Agence.` },
       { status: 409 },
     );
   }
@@ -102,7 +109,7 @@ export async function POST(req: Request) {
   // ── PDF ───────────────────────────────────────────────────────────────────
   let base64: string;
   try {
-    const doc = await buildInvoicePdf({ invoice, billing, agency, modelName: model.name });
+    const doc = await buildInvoicePdf({ lines: group.lines, billing, agency, modelName: model.name });
     base64 = Buffer.from(doc.output('arraybuffer')).toString('base64');
   } catch (e) {
     return NextResponse.json(
@@ -117,7 +124,13 @@ export async function POST(req: Request) {
     month: 'long',
     year: 'numeric',
   });
-  const mail = invoiceEmail(invoice, billing, agency, model.name, periodLabelEn);
+  const mail = invoiceEmail(
+    { ...invoice, invoiceNumber: group.invoiceNumber, amount: group.amount },
+    billing,
+    agency,
+    model.name,
+    periodLabelEn,
+  );
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -148,10 +161,9 @@ export async function POST(req: Request) {
     }
 
     const now = new Date().toISOString().slice(0, 10);
-    const saved = await saveInvoice({
-      ...invoice,
+    const saved = await saveGroup(group.lines, {
       status: 'facturee',
-      issuedAt: invoice.issuedAt || now,
+      issuedAt: group.issuedAt || now,
       sentAt: now,
       sentTo: billing.email,
     });

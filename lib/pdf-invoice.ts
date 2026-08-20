@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import type { AgencySettings, CommissionInvoice, Currency, ModelBilling } from './compta';
-import { bankBlock, billingDisplayName } from './compta';
+import { addDays, bankBlock, billingDisplayName } from './compta';
 import { LOGO_GOLD_PNG, LOGO_RATIO } from './logo-asset';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,24 +57,20 @@ export function periodEndDate(period: string): string {
   return new Date(y, m, 0).toISOString().slice(0, 10);
 }
 
-export function addDays(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 export interface InvoiceContext {
-  invoice: CommissionInvoice;
+  /** Les lignes de la facture — une par plateforme, regroupées sur un document. */
+  lines: CommissionInvoice[];
   billing: ModelBilling;
   agency: AgencySettings;
   modelName: string;
 }
 
 export async function buildInvoicePdf(ctx: InvoiceContext): Promise<jsPDF> {
-  const { invoice: inv, billing: b, agency: a, modelName } = ctx;
+  const { lines, billing: b, agency: a, modelName } = ctx;
+  const inv = lines[0];
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const cur = inv.currency;
+  const total = Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
 
   // ── En-tête ────────────────────────────────────────────────────────────────
   const badgeR = 9;
@@ -189,18 +185,25 @@ export async function buildInvoicePdf(ctx: InvoiceContext): Promise<jsPDF> {
   doc.line(M, y, RIGHT, y);
   y += 6;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.text(a.serviceLabel || 'Marketing service', M, y);
-  doc.text(money(inv.amount, cur), colPrice, y, { align: 'right' });
-  doc.text('1', colQty, y, { align: 'right' });
-  doc.text('-', colTax, y, { align: 'right' });
-  doc.text(money(inv.amount, cur), RIGHT, y, { align: 'right' });
+  lines.forEach((line, idx) => {
+    if (idx > 0) y += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...INK);
+    const label = `${a.serviceLabel || 'Marketing service'}${
+      lines.length > 1 ? ` — ${line.platform}` : ''
+    }`;
+    doc.text(label, M, y);
+    doc.text(money(line.amount, cur), colPrice, y, { align: 'right' });
+    doc.text('1', colQty, y, { align: 'right' });
+    doc.text('-', colTax, y, { align: 'right' });
+    doc.text(money(line.amount, cur), RIGHT, y, { align: 'right' });
 
-  y += 4.5;
-  doc.setFontSize(7.5);
-  doc.setTextColor(...MUTED);
-  doc.text(enPeriod(inv.period), M, y);
+    y += 4.5;
+    doc.setFontSize(7.5);
+    doc.setTextColor(...MUTED);
+    doc.text(enPeriod(line.period), M, y);
+  });
 
   y += 3;
   doc.setDrawColor(...RULE);
@@ -213,7 +216,7 @@ export async function buildInvoicePdf(ctx: InvoiceContext): Promise<jsPDF> {
   doc.setFontSize(9);
   doc.setTextColor(...INK);
   doc.text('Subtotal', totalsX, y);
-  doc.text(money(inv.amount, cur), RIGHT, y, { align: 'right' });
+  doc.text(money(total, cur), RIGHT, y, { align: 'right' });
 
   y += 3;
   doc.setDrawColor(...RULE);
@@ -222,10 +225,10 @@ export async function buildInvoicePdf(ctx: InvoiceContext): Promise<jsPDF> {
 
   doc.setFont('helvetica', 'bold');
   doc.text('Total', totalsX, y);
-  doc.text(money(inv.amount, cur), RIGHT, y, { align: 'right' });
+  doc.text(money(total, cur), RIGHT, y, { align: 'right' });
 
   // ── Note ───────────────────────────────────────────────────────────────────
-  y += 12;
+  y += 10;
   const noteLines = [a.paymentTerms, a.vatMention, a.footerNote, inv.notes]
     .map((l) => (l ?? '').trim())
     .filter(Boolean);
@@ -246,7 +249,7 @@ export async function buildInvoicePdf(ctx: InvoiceContext): Promise<jsPDF> {
       doc.text(l, M + 6, ny);
       ny += 4.6;
     });
-    y += boxH + 10;
+    y += boxH + 8;
   }
 
   // ── Coordonnées de paiement ────────────────────────────────────────────────
@@ -280,7 +283,7 @@ export async function buildInvoicePdf(ctx: InvoiceContext): Promise<jsPDF> {
     for (let i = 0; i < middle.length; i += 2) {
       pairsHeight += Math.max(middle[i].length, middle[i + 1]?.length ?? 0) * LH + 3;
     }
-    const needed = 9 + head.length * LH + pairsHeight + tail.length * LH + 4;
+    const needed = 8 + head.length * LH + pairsHeight + tail.length * LH;
 
     if (y + needed > PAGE_H - 20) {
       doc.addPage();
@@ -353,7 +356,7 @@ export function invoiceFileName(inv: CommissionInvoice, modelName: string): stri
 
 export async function downloadInvoicePdf(ctx: InvoiceContext): Promise<void> {
   const doc = await buildInvoicePdf(ctx);
-  doc.save(invoiceFileName(ctx.invoice, ctx.modelName));
+  doc.save(invoiceFileName(ctx.lines[0], ctx.modelName));
 }
 
 export async function invoicePdfBlobUrl(ctx: InvoiceContext): Promise<string> {

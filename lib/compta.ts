@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { loadModels, MODELS, Model } from './data';
+import { loadModels, MODELS, Model, Platform } from './data';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module Compta Modèle — fiches de facturation des créatrices.
@@ -33,6 +33,14 @@ export function round2(n: number): number {
 
 export interface ModelBilling {
   modelId: string;
+  /** Taux par plateforme. Vide = on retombe sur crm_models.commission. */
+  commissionRates: Partial<Record<Platform, number>>;
+  /**
+   * Devise dans laquelle la modèle est effectivement payée, toutes plateformes
+   * confondues. C'est une propriété de son compte bancaire, pas de la
+   * plateforme. Vide = on retombe sur la devise par défaut de la plateforme.
+   */
+  payoutCurrency: Currency | '';
   firstName: string;
   lastName: string;
   email: string;
@@ -47,6 +55,8 @@ export function emptyBilling(modelId: string, fullName = ''): ModelBilling {
   const parts = fullName.trim().split(/\s+/);
   return {
     modelId,
+    commissionRates: {},
+    payoutCurrency: '',
     firstName: parts[0] ?? '',
     lastName: parts.slice(1).join(' '),
     email: '',
@@ -72,6 +82,20 @@ export const COMPANY_TYPES = [
   'Sole trader',
   'Freelance',
 ];
+
+/**
+ * Taux appliqué à une plateforme donnée.
+ * Un taux spécifique l'emporte ; sinon on utilise le taux par défaut de la
+ * modèle, qui reste stocké dans crm_models.commission.
+ */
+export function rateFor(
+  billing: ModelBilling | null | undefined,
+  platform: Platform,
+  fallback: number,
+): number {
+  const specific = billing?.commissionRates?.[platform];
+  return typeof specific === 'number' && specific >= 0 ? specific : fallback;
+}
 
 /** Le nom qui doit apparaître sur une facture pour cette fiche. */
 export function billingDisplayName(b: ModelBilling, fallback = ''): string {
@@ -127,6 +151,13 @@ const str = (v: unknown, d = '') => (typeof v === 'string' ? v : d);
 function rowToBilling(r: Row): ModelBilling {
   return {
     modelId: str(r.model_id),
+    commissionRates:
+      r.commission_rates && typeof r.commission_rates === 'object'
+        ? (r.commission_rates as Partial<Record<Platform, number>>)
+        : {},
+    payoutCurrency: (CURRENCIES as readonly string[]).includes(str(r.payout_currency))
+      ? (str(r.payout_currency) as Currency)
+      : '',
     firstName: str(r.first_name),
     lastName: str(r.last_name),
     email: str(r.email),
@@ -141,6 +172,8 @@ function rowToBilling(r: Row): ModelBilling {
 function billingToRow(b: ModelBilling): Row {
   return {
     model_id: b.modelId,
+    commission_rates: b.commissionRates ?? {},
+    payout_currency: b.payoutCurrency ?? '',
     first_name: b.firstName.trim(),
     last_name: b.lastName.trim(),
     email: b.email.trim(),
@@ -279,9 +312,12 @@ export function isBillable(status: InvoiceStatus): boolean {
 /** Libellé de prestation repris de vos factures Revolut. */
 export const SERVICE_LABEL = 'Marketing service';
 
+export const PLATFORMS: Platform[] = ['MYM', 'OF', 'Reveal'];
+
 export interface CommissionInvoice {
   id: string;
   modelId: string;
+  platform: Platform;
   period: string;          // 'YYYY-MM'
   grossAmount: number;     // CA brut de la modèle sur la période
   commissionRate: number;
@@ -305,15 +341,41 @@ export interface CommissionInvoice {
   refusalNote: string;
 }
 
+/** La devise par défaut suit la plateforme : OF paie en USD, MYM en EUR. */
+export const PLATFORM_CURRENCY: Record<Platform, Currency> = {
+  MYM: 'EUR',
+  OF: 'USD',
+  Reveal: 'USD',
+};
+
+/**
+ * Devise d'une déclaration.
+ *
+ * Une facture porte un seul total et un seul bloc bancaire : deux lignes ne
+ * peuvent tenir sur le même document que si elles sont dans la même devise.
+ * Comme la modèle encaisse tout sur un seul compte, la devise à retenir est
+ * celle de son compte — définie sur sa fiche — et non celle de la plateforme.
+ * Sans devise sur la fiche, on retombe sur la devise par défaut de la
+ * plateforme.
+ */
+export function currencyFor(
+  billing: ModelBilling | null | undefined,
+  platform: Platform,
+): Currency {
+  return billing?.payoutCurrency || PLATFORM_CURRENCY[platform];
+}
+
 export function emptyInvoice(
   modelId: string,
+  platform: Platform,
   period: string,
   commissionRate: number,
-  currency: Currency,
+  currency: Currency = PLATFORM_CURRENCY[platform],
 ): CommissionInvoice {
   return {
-    id: `ci-${modelId}-${period}`,
+    id: `ci-${modelId}-${period}-${platform}`,
     modelId,
+    platform,
     period,
     grossAmount: 0,
     commissionRate,
@@ -355,12 +417,40 @@ export function currentPeriod(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-/** Les 12 derniers mois, du plus récent au plus ancien. */
+/**
+ * Mois précédent — c'est la période à déclarer par défaut.
+ *
+ * Une modèle est payée début du mois M pour ce qu'elle a produit en M-1.
+ * En août, ce qui est déclarable est donc juillet : proposer août par défaut
+ * inviterait à saisir un montant qui n'a pas encore été versé.
+ */
+export function previousPeriod(from = new Date()): string {
+  return currentPeriod(new Date(from.getFullYear(), from.getMonth() - 1, 1));
+}
+
+/** Les 12 derniers mois, du plus récent au plus ancien, mois en cours inclus. */
 export function recentPeriods(count = 12, from = new Date()): string[] {
   return Array.from({ length: count }, (_, i) => {
     const d = new Date(from.getFullYear(), from.getMonth() - i, 1);
     return currentPeriod(d);
   });
+}
+
+/** Mois où le paiement de cette période est encaissé : le mois suivant. */
+export function payoutMonthLabel(period: string): string {
+  const [y, m] = period.split('-').map(Number);
+  if (!y || !m) return '';
+  return new Date(y, m, 1).toLocaleDateString('fr-FR', { month: 'long' });
+}
+
+/**
+ * Libellé complet pour un sélecteur : « Juillet 2026 · réglé début août ».
+ * Le mois en cours est marqué, son paiement n'étant pas encore tombé.
+ */
+export function periodOptionLabel(period: string, from = new Date()): string {
+  const base = periodLabel(period);
+  if (period === currentPeriod(from)) return `${base} · en cours`;
+  return `${base} · réglé début ${payoutMonthLabel(period)}`;
 }
 
 /**
@@ -392,6 +482,7 @@ function rowToInvoice(r: Row): CommissionInvoice {
   return {
     id: str(r.id),
     modelId: str(r.model_id),
+    platform: (str(r.platform, 'MYM') as Platform),
     period: str(r.period),
     grossAmount: num(r.gross_amount),
     commissionRate: num(r.commission_rate, 20),
@@ -420,6 +511,7 @@ function invoiceToRow(i: CommissionInvoice): Row {
   return {
     id: i.id,
     model_id: i.modelId,
+    platform: i.platform,
     period: i.period,
     gross_amount: i.grossAmount,
     commission_rate: i.commissionRate,
@@ -445,6 +537,11 @@ function invoiceToRow(i: CommissionInvoice): Row {
   };
 }
 
+/** Clé : `${modelId}::${platform}` — une modèle peut avoir deux lignes par mois. */
+export function invoiceKey(modelId: string, platform: Platform): string {
+  return `${modelId}::${platform}`;
+}
+
 export async function loadInvoices(period: string): Promise<Record<string, CommissionInvoice>> {
   return safeRead(async () => {
     const out: Record<string, CommissionInvoice> = {};
@@ -455,7 +552,7 @@ export async function loadInvoices(period: string): Promise<Record<string, Commi
     if (!error && data) {
       (data as Row[]).forEach((r) => {
         const i = rowToInvoice(r);
-        if (i.modelId) out[i.modelId] = i;
+        if (i.modelId) out[invoiceKey(i.modelId, i.platform)] = i;
       });
     }
     return out;
@@ -466,7 +563,7 @@ export async function saveInvoice(i: CommissionInvoice): Promise<SaveResult> {
   try {
     const { error } = await supabase
       .from('crm_commission_invoices')
-      .upsert(invoiceToRow(i), { onConflict: 'model_id,period' });
+      .upsert(invoiceToRow(i), { onConflict: 'model_id,period,platform' });
     if (error) {
       if (error.code === '42P01') {
         return {
@@ -527,7 +624,7 @@ export async function loadInvoicesForModel(
     if (!error && data) {
       (data as Row[]).forEach((r) => {
         const i = rowToInvoice(r);
-        if (i.period) out[i.period] = i;
+        if (i.period) out[`${i.period}::${i.platform}`] = i;
       });
     }
     return out;
@@ -779,6 +876,7 @@ export async function takeNextInvoiceNumber(): Promise<{ number: string } | { er
 export async function loadInvoice(
   modelId: string,
   period: string,
+  platform: Platform,
 ): Promise<CommissionInvoice | null> {
   return safeRead(async () => {
     const { data, error } = await supabase
@@ -786,6 +884,7 @@ export async function loadInvoice(
       .select('*')
       .eq('model_id', modelId)
       .eq('period', period)
+      .eq('platform', platform)
       .maybeSingle();
     if (!error && data) return rowToInvoice(data as Row);
     return null;
@@ -802,4 +901,142 @@ export async function loadBillingFor(modelId: string): Promise<ModelBilling | nu
     if (!error && data) return rowToBilling(data as Row);
     return null;
   }, null);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Suivi des paiements.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Toutes les factures, toutes périodes, de la plus récente à la plus ancienne. */
+export async function loadAllInvoices(): Promise<CommissionInvoice[]> {
+  return safeRead(async () => {
+    const { data, error } = await supabase
+      .from('crm_commission_invoices')
+      .select('*')
+      .order('period', { ascending: false });
+    if (!error && data) return (data as Row[]).map(rowToInvoice);
+    return [] as CommissionInvoice[];
+  }, [] as CommissionInvoice[]);
+}
+
+export function addDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Échéance : date d'émission + délai de paiement de l'agence. */
+export function dueDateOf(inv: CommissionInvoice, paymentDays: number): string {
+  if (!inv.issuedAt) return '';
+  return paymentDays > 0 ? addDays(inv.issuedAt, paymentDays) : inv.issuedAt;
+}
+
+/**
+ * En retard : facture envoyée, non payée, échéance dépassée.
+ * Une facture non envoyée n'est jamais en retard — c'est l'agence qui traîne,
+ * pas la modèle.
+ */
+export function isOverdue(inv: CommissionInvoice, paymentDays: number, today = new Date()): boolean {
+  if (inv.status !== 'facturee') return false;
+  const due = dueDateOf(inv, paymentDays);
+  if (!due) return false;
+  return due < today.toISOString().slice(0, 10);
+}
+
+export function daysLate(inv: CommissionInvoice, paymentDays: number, today = new Date()): number {
+  const due = dueDateOf(inv, paymentDays);
+  if (!due) return 0;
+  const diff = today.getTime() - new Date(`${due}T00:00:00`).getTime();
+  return Math.max(0, Math.floor(diff / 86400000));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regroupement en factures.
+//
+// Une modèle déclare un montant par plateforme, mais reçoit UNE facture par
+// mois : elle a un seul compte bancaire et fait un seul virement. Les lignes
+// de plateformes sont donc regroupées sur un même document.
+//
+// Le regroupement inclut la devise : si deux plateformes payaient dans deux
+// devises différentes, les coordonnées bancaires imprimées différeraient et
+// le document ne tiendrait plus. On produit alors deux factures.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface InvoiceGroup {
+  key: string;
+  modelId: string;
+  period: string;
+  currency: Currency;
+  lines: CommissionInvoice[];
+  grossAmount: number;
+  amount: number;
+  invoiceNumber: string;
+  issuedAt: string;
+  sentAt: string;
+  paidAt: string;
+  /** Statut le moins avancé du groupe : une facture n'est payée que si tout l'est. */
+  status: InvoiceStatus;
+}
+
+export function groupKeyOf(i: CommissionInvoice): string {
+  return `${i.modelId}|${i.period}|${i.currency}`;
+}
+
+const STATUS_ORDER: InvoiceStatus[] = [
+  'a_declarer',
+  'refuse',
+  'declare',
+  'valide',
+  'facturee',
+  'payee',
+];
+
+export function buildGroups(rows: CommissionInvoice[]): InvoiceGroup[] {
+  const map = new Map<string, CommissionInvoice[]>();
+  rows.forEach((i) => {
+    const k = groupKeyOf(i);
+    map.set(k, [...(map.get(k) ?? []), i]);
+  });
+
+  return [...map.entries()].map(([key, lines]) => {
+    const sorted = [...lines].sort((a, b) => a.platform.localeCompare(b.platform));
+    const first = sorted[0];
+    const withNumber = sorted.find((l) => l.invoiceNumber);
+    const least = sorted.reduce(
+      (acc, l) => (STATUS_ORDER.indexOf(l.status) < STATUS_ORDER.indexOf(acc) ? l.status : acc),
+      'payee' as InvoiceStatus,
+    );
+    return {
+      key,
+      modelId: first.modelId,
+      period: first.period,
+      currency: first.currency,
+      lines: sorted,
+      grossAmount: round2(sorted.reduce((s, l) => s + l.grossAmount, 0)),
+      amount: round2(sorted.reduce((s, l) => s + l.amount, 0)),
+      invoiceNumber: withNumber?.invoiceNumber ?? '',
+      issuedAt: sorted.find((l) => l.issuedAt)?.issuedAt ?? '',
+      sentAt: sorted.find((l) => l.sentAt)?.sentAt ?? '',
+      paidAt: sorted.find((l) => l.paidAt)?.paidAt ?? '',
+      status: least,
+    };
+  });
+}
+
+/** Applique la même modification à toutes les lignes d'une facture. */
+export async function saveGroup(
+  lines: CommissionInvoice[],
+  patch: Partial<CommissionInvoice>,
+): Promise<SaveResult> {
+  for (const line of lines) {
+    const res = await saveInvoice({ ...line, ...patch });
+    if (!res.ok) return res;
+  }
+  return { ok: true };
+}
+
+/** Groupe facturable : au moins une ligne validée et un montant strictement positif. */
+export function isGroupBillable(g: InvoiceGroup): boolean {
+  return g.amount > 0 && g.lines.every((l) => isBillable(l.status));
 }

@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Save, Search, Building2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { Model } from '@/lib/data';
+import { Model, Platform } from '@/lib/data';
 import {
-  ModelBilling, SaveResult, COMPANY_TYPES, billingDisplayName,
-  emptyBilling, loadAllBilling, missingFields, safeLoadModels, saveBilling, saveCommission,
+  Currency, CURRENCIES,
+  ModelBilling, SaveResult, COMPANY_TYPES, PLATFORMS, PLATFORM_CURRENCY, billingDisplayName,
+  emptyBilling, loadAllBilling, missingFields, rateFor, safeLoadModels, saveBilling, saveCommission,
 } from '@/lib/compta';
 import { Card, Field, TextInput, NumberInput, TextArea, GoldButton, Banner, EmptyState, SectionTitle } from './ui';
 
@@ -13,10 +14,11 @@ export default function BillingTab() {
   const [models, setModels] = useState<Model[]>([]);
   const [billing, setBilling] = useState<Record<string, ModelBilling>>({});
   const [rates, setRates] = useState<Record<string, number>>({});
+  const [platforms, setPlatforms] = useState<Record<string, Platform[]>>({});
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ModelBilling | null>(null);
-  const [draftRate, setDraftRate] = useState<number>(20);
+  const [draftPlatforms, setDraftPlatforms] = useState<Platform[]>([]);
 
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -29,6 +31,7 @@ export default function BillingTab() {
       setModels(m);
       setBilling(b);
       setRates(Object.fromEntries(m.map((x) => [x.id, x.commission])));
+      setPlatforms(Object.fromEntries(m.map((x) => [x.id, x.platforms ?? []])));
       setLoading(false);
     })();
   }, []);
@@ -53,8 +56,14 @@ export default function BillingTab() {
     }
     setOpenId(m.id);
     setDraft(billing[m.id] ?? emptyBilling(m.id, m.name));
-    setDraftRate(rates[m.id] ?? m.commission);
+    setDraftPlatforms(platforms[m.id] ?? m.platforms ?? []);
   };
+
+  const togglePlatform = (p: Platform) =>
+    setDraftPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+
+  const setRate = (p: Platform, n: number) =>
+    setDraft((d) => (d ? { ...d, commissionRates: { ...d.commissionRates, [p]: n } } : d));
 
   const patch = (p: Partial<ModelBilling>) => setDraft((d) => (d ? { ...d, ...p } : d));
 
@@ -65,10 +74,18 @@ export default function BillingTab() {
     setSaving(true);
     setFeedback(null);
 
+    // Le taux par défaut de la modèle suit celui de sa première plateforme :
+    // il sert de repli pour toute plateforme sans taux propre.
+    const firstRate = rateFor(draft, draftPlatforms[0] ?? 'MYM', model.commission);
+
+    const samePlatforms =
+      draftPlatforms.length === (platforms[draft.modelId] ?? []).length &&
+      draftPlatforms.every((p) => (platforms[draft.modelId] ?? []).includes(p));
+
     const [resBilling, resRate] = await Promise.all([
       saveBilling(draft),
-      draftRate !== rates[draft.modelId]
-        ? saveCommission(model, draftRate)
+      firstRate !== rates[draft.modelId] || !samePlatforms
+        ? saveCommission({ ...model, platforms: draftPlatforms }, firstRate)
         : Promise.resolve<SaveResult>({ ok: true }),
     ]);
 
@@ -81,13 +98,17 @@ export default function BillingTab() {
     if (!resRate.ok) {
       setFeedback({
         kind: 'error',
-        message: `Fiche enregistrée, mais le % agence n'a pas pu être mis à jour : ${resRate.error}`,
+        message: `Fiche enregistrée, mais le % agence et les plateformes n'ont pas pu être mis à jour : ${resRate.error}`,
       });
       return;
     }
 
     setBilling((prev) => ({ ...prev, [draft.modelId]: draft }));
-    setRates((prev) => ({ ...prev, [draft.modelId]: draftRate }));
+    setRates((prev) => ({
+      ...prev,
+      [draft.modelId]: rateFor(draft, draftPlatforms[0] ?? 'MYM', model.commission),
+    }));
+    setPlatforms((prev) => ({ ...prev, [draft.modelId]: draftPlatforms }));
     setFeedback({ kind: 'ok', message: 'Fiche enregistrée.' });
   };
 
@@ -147,8 +168,15 @@ export default function BillingTab() {
                   </span>
                 )}
 
-                <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-[#C9A84C]/10 text-[#C9A84C] flex-shrink-0">
-                  {rates[m.id] ?? m.commission} %
+                <span className="hidden sm:flex gap-1 flex-shrink-0">
+                  {(platforms[m.id] ?? m.platforms ?? []).map((p) => (
+                    <span
+                      key={p}
+                      className="px-2 py-1 rounded-lg text-[11px] bg-[#1a1a1a] text-[#888]"
+                    >
+                      {p} · {rateFor(b, p, rates[m.id] ?? m.commission)} %
+                    </span>
+                  ))}
                 </span>
 
                 <span
@@ -190,14 +218,24 @@ export default function BillingTab() {
                           placeholder="charlotte@exemple.com"
                         />
                       </Field>
-                      <Field label="% pour l'agence" hint="Partagé avec le module Management">
-                        <NumberInput
-                          min={0}
-                          max={100}
-                          step="0.5"
-                          value={draftRate}
-                          onValueChange={setDraftRate}
-                        />
+                      <Field
+                        label="Devise de paiement"
+                        hint="La devise dans laquelle elle reçoit ses paiements — elle s'appliquera automatiquement à ses déclarations"
+                      >
+                        <select
+                          value={draft.payoutCurrency}
+                          onChange={(e) =>
+                            patch({ payoutCurrency: e.target.value as Currency | '' })
+                          }
+                          className="w-full px-3 py-2.5 bg-[#0f0f0f] border border-[#222] rounded-xl text-sm text-white outline-none transition-colors focus:border-[#C9A84C]/60 cursor-pointer"
+                        >
+                          <option value="">Selon la plateforme</option>
+                          {CURRENCIES.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
                       </Field>
                       <Field label="Adresse complète" required className="md:col-span-2">
                         <TextArea
@@ -208,6 +246,58 @@ export default function BillingTab() {
                         />
                       </Field>
                     </div>
+                  </div>
+
+                  <div>
+                    <SectionTitle>Plateformes</SectionTitle>
+                    <div className="flex flex-wrap gap-2">
+                      {PLATFORMS.map((p) => {
+                        const on = draftPlatforms.includes(p);
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => togglePlatform(p)}
+                            className={`px-4 py-2.5 rounded-xl text-sm border transition ${
+                              on
+                                ? 'bg-[#C9A84C]/15 border-[#C9A84C]/40 text-[#C9A84C] font-medium'
+                                : 'bg-[#0f0f0f] border-[#222] text-[#666] hover:text-[#999]'
+                            }`}
+                          >
+                            {p}
+                            <span className="ml-2 text-[10px] opacity-60">
+                              {PLATFORM_CURRENCY[p]}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {draftPlatforms.length > 0 && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                        {draftPlatforms.map((p) => (
+                          <Field key={p} label={`% agence sur ${p}`}>
+                            <NumberInput
+                              min={0}
+                              max={100}
+                              step="0.5"
+                              value={rateFor(draft, p, m.commission)}
+                              onValueChange={(n) => setRate(p, n)}
+                            />
+                          </Field>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[11px] text-[#555] mt-2">
+                      {draftPlatforms.length > 1
+                        ? draft.payoutCurrency
+                          ? `Elle déclarera ${draftPlatforms.length} montants par mois, tous en ${draft.payoutCurrency} : une seule facture.`
+                          : `Elle déclarera ${draftPlatforms.length} montants par mois. Sans devise de paiement, chaque plateforme garde la sienne (${draftPlatforms
+                              .map((p) => `${p} en ${PLATFORM_CURRENCY[p]}`)
+                              .join(', ')}) et une facture est émise par devise.`
+                        : draftPlatforms.length === 1
+                          ? 'Une déclaration et une facture par mois.'
+                          : 'Aucune plateforme : elle ne pourra rien déclarer.'}
+                    </p>
                   </div>
 
                   <div>

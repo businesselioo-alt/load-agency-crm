@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Send, Lock, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { Model } from '@/lib/data';
+import { Model, Platform } from '@/lib/data';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   CommissionInvoice, Currency, CURRENCIES, ModelBilling,
   STATUS_LABELS, STATUS_STYLES,
-  computeCommission, emptyInvoice, findModelForUser, formatMoney,
-  loadAllBilling, loadInvoicesForModel, periodLabel, recentPeriods, safeLoadModels, saveInvoice,
+  computeCommission, currencyFor, emptyInvoice, findModelForUser, formatMoney,
+  loadAllBilling, loadInvoicesForModel, payoutMonthLabel, periodLabel, rateFor, recentPeriods,
+  safeLoadModels, saveInvoice,
 } from '@/lib/compta';
 import { Card, NumberInput, GoldButton, Banner, EmptyState } from './ui';
 
@@ -37,25 +38,41 @@ export default function DeclarationTab({ forModel }: { forModel?: Model | null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forModel, user?.email, user?.name]);
 
-  const periods = useMemo(() => recentPeriods(6), []);
+  // On part du mois précédent : le paiement du mois en cours n'est pas encore tombé.
+  const periods = useMemo(() => recentPeriods(6, new Date()).slice(1), []);
+  const platforms: Platform[] = model?.platforms?.length ? model.platforms : ['MYM'];
 
-  const rowFor = (period: string): CommissionInvoice =>
-    invoices[period] ?? emptyInvoice(model?.id ?? '', period, model?.commission ?? 20, 'EUR');
+  const keyOf = (period: string, platform: Platform) => `${period}::${platform}`;
 
-  const patch = (period: string, p: Partial<CommissionInvoice>) =>
+  /** La devise de la fiche l'emporte : elle encaisse tout sur le même compte. */
+  const rowFor = (period: string, platform: Platform): CommissionInvoice => {
+    const row =
+      invoices[keyOf(period, platform)] ??
+      emptyInvoice(
+        model?.id ?? '',
+        platform,
+        period,
+        rateFor(billing, platform, model?.commission ?? 20),
+        currencyFor(billing, platform),
+      );
+    const forced = billing?.payoutCurrency;
+    return forced && row.currency !== forced ? { ...row, currency: forced } : row;
+  };
+
+  const patch = (period: string, platform: Platform, p: Partial<CommissionInvoice>) =>
     setInvoices((prev) => {
-      const next = { ...rowFor(period), ...p };
+      const next = { ...rowFor(period, platform), ...p };
       next.amount = computeCommission(next.grossAmount, next.commissionRate);
-      return { ...prev, [period]: next };
+      return { ...prev, [keyOf(period, platform)]: next };
     });
 
-  const submit = async (period: string) => {
-    const row = rowFor(period);
+  const submit = async (period: string, platform: Platform) => {
+    const row = rowFor(period, platform);
     if (row.grossAmount <= 0) {
       setFeedback({ kind: 'error', message: 'Saisis un montant supérieur à 0.' });
       return;
     }
-    setBusyPeriod(period);
+    setBusyPeriod(keyOf(period, platform));
     setFeedback(null);
     const payload: CommissionInvoice = {
       ...row,
@@ -70,8 +87,11 @@ export default function DeclarationTab({ forModel }: { forModel?: Model | null }
       setFeedback({ kind: 'error', message: res.error ?? "Échec de l'envoi." });
       return;
     }
-    setInvoices((prev) => ({ ...prev, [period]: payload }));
-    setFeedback({ kind: 'ok', message: `Montant de ${periodLabel(period)} transmis à l'agence.` });
+    setInvoices((prev) => ({ ...prev, [keyOf(period, platform)]: payload }));
+    setFeedback({
+      kind: 'ok',
+      message: `Montant ${platform} de ${periodLabel(period)} transmis à l'agence.`,
+    });
   };
 
   if (loading) {
@@ -95,8 +115,10 @@ export default function DeclarationTab({ forModel }: { forModel?: Model | null }
       <Card className="p-5">
         <p className="text-sm text-white font-medium">{model.name}</p>
         <p className="text-xs text-[#555] mt-0.5">
-          Commission agence : {model.commission} %
-          {billing?.email ? ` · ${billing.email}` : ''}
+          {platforms
+            .map((p) => `${p} · ${rateFor(billing, p, model.commission)} %`)
+            .join('   ')}
+          {billing?.email ? `   ·   ${billing.email}` : ''}
         </p>
       </Card>
 
@@ -106,101 +128,123 @@ export default function DeclarationTab({ forModel }: { forModel?: Model | null }
         {periods.length === 0 ? (
           <EmptyState title="Aucune période" />
         ) : (
-          periods.map((period) => {
-            const row = rowFor(period);
-            const st = STATUS_STYLES[row.status];
-            const locked = row.status === 'valide' || row.status === 'facturee' || row.status === 'payee';
-            const pending = row.status === 'declare';
+          periods.map((period) => (
+            <div key={period} className="border-b border-[#1a1a1a] last:border-b-0">
+              <div className="px-4 md:px-5 pt-4 pb-1">
+                <p className="text-sm font-medium text-white">{periodLabel(period)}</p>
+                <p className="text-[10px] text-[#555]">
+                  réglé début {payoutMonthLabel(period)}
+                </p>
+              </div>
 
-            return (
-              <div key={period} className="border-b border-[#1a1a1a] last:border-b-0 px-4 md:px-5 py-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="min-w-32">
-                    <p className="text-sm font-medium text-white">{periodLabel(period)}</p>
-                    <span
-                      className="inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-medium border"
-                      style={{ color: st.text, backgroundColor: st.bg, borderColor: st.border }}
-                    >
-                      {STATUS_LABELS[row.status]}
-                    </span>
-                  </div>
+              {platforms.map((platform) => {
+                const row = rowFor(period, platform);
+                const st = STATUS_STYLES[row.status];
+                const locked =
+                  row.status === 'valide' || row.status === 'facturee' || row.status === 'payee';
+                const pending = row.status === 'declare';
+                const busy = busyPeriod === keyOf(period, platform);
 
-                  <div className="flex items-end gap-2 flex-1 min-w-64">
-                    <div>
-                      <label className="block text-[10px] text-[#666] mb-1">Montant reçu</label>
-                      <NumberInput
-                        min={0}
-                        step="0.01"
-                        disabled={locked || pending}
-                        value={row.grossAmount}
-                        placeholder="0.00"
-                        onValueChange={(n) => patch(period, { grossAmount: n })}
-                        className="!w-36 !py-2"
-                      />
+                return (
+                  <div key={platform} className="px-4 md:px-5 py-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-28">
+                        <p className="text-sm font-medium text-[#C9A84C]">{platform}</p>
+                        <span
+                          className="inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-medium border"
+                          style={{ color: st.text, backgroundColor: st.bg, borderColor: st.border }}
+                        >
+                          {STATUS_LABELS[row.status]}
+                        </span>
+                      </div>
+
+                      <div className="flex items-end gap-2 flex-1 min-w-64">
+                        <div>
+                          <label className="block text-[10px] text-[#666] mb-1">Montant reçu</label>
+                          <NumberInput
+                            min={0}
+                            step="0.01"
+                            disabled={locked || pending}
+                            value={row.grossAmount}
+                            placeholder="0.00"
+                            onValueChange={(n) => patch(period, platform, { grossAmount: n })}
+                            className="!w-36 !py-2"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-[#666] mb-1">Devise</label>
+                          {billing?.payoutCurrency ? (
+                            <p className="px-3 py-2 text-sm text-[#888]">
+                              {billing.payoutCurrency}
+                            </p>
+                          ) : (
+                            <select
+                              disabled={locked || pending}
+                              value={row.currency}
+                              onChange={(e) =>
+                                patch(period, platform, { currency: e.target.value as Currency })
+                              }
+                              className="px-3 py-2 bg-[#0f0f0f] border border-[#222] rounded-xl text-sm text-white outline-none focus:border-[#C9A84C]/60 cursor-pointer disabled:opacity-50"
+                            >
+                              {CURRENCIES.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right min-w-32">
+                        <p className="text-[10px] text-[#666] mb-1">Commission agence</p>
+                        <p className="text-sm font-semibold text-[#C9A84C]">
+                          {formatMoney(row.amount, row.currency)}
+                        </p>
+                      </div>
+
+                      <div className="min-w-36 flex justify-end">
+                        {locked ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-[#555]">
+                            <Lock size={13} />
+                            Validé par l&apos;agence
+                          </span>
+                        ) : pending ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-blue-300/80">
+                            <CheckCircle2 size={13} />
+                            En attente
+                          </span>
+                        ) : (
+                          <GoldButton
+                            onClick={() => submit(period, platform)}
+                            disabled={busy}
+                            className="!py-2 !px-3 !text-xs"
+                          >
+                            <Send size={13} />
+                            {busy ? 'Envoi...' : 'Transmettre'}
+                          </GoldButton>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-[10px] text-[#666] mb-1">Devise</label>
-                      <select
-                        disabled={locked || pending}
-                        value={row.currency}
-                        onChange={(e) => patch(period, { currency: e.target.value as Currency })}
-                        className="px-3 py-2 bg-[#0f0f0f] border border-[#222] rounded-xl text-sm text-white outline-none focus:border-[#C9A84C]/60 cursor-pointer disabled:opacity-50"
-                      >
-                        {CURRENCIES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
 
-                  <div className="text-right min-w-32">
-                    <p className="text-[10px] text-[#666] mb-1">Commission agence</p>
-                    <p className="text-sm font-semibold text-[#C9A84C]">
-                      {formatMoney(row.amount, row.currency)}
-                    </p>
-                  </div>
-
-                  <div className="min-w-36 flex justify-end">
-                    {locked ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-[#555]">
-                        <Lock size={13} />
-                        Validé par l&apos;agence
-                      </span>
-                    ) : pending ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-blue-300/80">
-                        <CheckCircle2 size={13} />
-                        En attente
-                      </span>
-                    ) : (
-                      <GoldButton
-                        onClick={() => submit(period)}
-                        disabled={busyPeriod === period}
-                        className="!py-2 !px-3 !text-xs"
-                      >
-                        <Send size={13} />
-                        {busyPeriod === period ? 'Envoi...' : 'Transmettre'}
-                      </GoldButton>
+                    {row.status === 'refuse' && row.refusalNote && (
+                      <div className="mt-2 flex gap-2 text-xs text-red-300/90">
+                        <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                        <span>Refusé par l&apos;agence : {row.refusalNote}</span>
+                      </div>
                     )}
                   </div>
-                </div>
-
-                {row.status === 'refuse' && row.refusalNote && (
-                  <div className="mt-3 flex gap-2 text-xs text-red-300/90">
-                    <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
-                    <span>Refusé par l&apos;agence : {row.refusalNote}</span>
-                  </div>
-                )}
-              </div>
-            );
-          })
+                );
+              })}
+            </div>
+          ))
         )}
       </Card>
 
       <p className="text-[11px] text-[#444] leading-relaxed">
-        Saisis le montant que tu as réellement reçu sur la période, dans la devise dans laquelle tu
-        l&apos;as reçu. L&apos;agence valide le montant, puis émet la facture de commission. Une fois
+        Le mois indiqué est celui de la prestation : le paiement de juillet arrive début août.
+        Saisis le montant que tu as réellement reçu pour ce mois-là, sur chaque plateforme et dans
+        la devise dans laquelle tu l&apos;as reçu. L&apos;agence valide le montant, puis émet la facture de commission. Une fois
         validé, le montant n&apos;est plus modifiable.
       </p>
     </div>

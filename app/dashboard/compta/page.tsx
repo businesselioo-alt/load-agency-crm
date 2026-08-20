@@ -1,25 +1,30 @@
 'use client';
 
 import { useState } from 'react';
-import { Users, ClipboardCheck, Wallet, Building2 } from 'lucide-react';
+import { Users, ClipboardCheck, Wallet, Building2, Banknote } from 'lucide-react';
 import BillingTab from '@/components/compta/BillingTab';
 import ValidationTab from '@/components/compta/ValidationTab';
 import DeclarationTab from '@/components/compta/DeclarationTab';
 import AgencyTab from '@/components/compta/AgencyTab';
+import PaymentsTab from '@/components/compta/PaymentsTab';
 import { useAuth } from '@/contexts/AuthContext';
 
-type TabId = 'fiches' | 'validation' | 'agence' | 'declaration';
+type TabId = 'fiches' | 'validation' | 'paiements' | 'agence' | 'declaration';
 
 export default function ComptaPage() {
   const { user } = useAuth();
 
   const isAgency = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'compta';
   const isModel = user?.role === 'model';
+  // Le suivi des encaissements est la vue financière consolidée de l'agence :
+  // réservée à l'admin, pas aux managers.
+  const isAdmin = user?.role === 'admin';
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = isAgency
     ? [
         { id: 'fiches', label: 'Fiches modèles', icon: Users },
         { id: 'validation', label: 'Déclarations', icon: ClipboardCheck },
+        ...(isAdmin ? [{ id: 'paiements' as TabId, label: 'Paiements', icon: Banknote }] : []),
         { id: 'agence', label: 'Agence', icon: Building2 },
       ]
     : [{ id: 'declaration', label: 'Ma comptabilité', icon: Wallet }];
@@ -73,6 +78,7 @@ export default function ComptaPage() {
 
       {activeTab === 'fiches' && <BillingTab />}
       {activeTab === 'validation' && <ValidationTab />}
+      {activeTab === 'paiements' && isAdmin && <PaymentsTab />}
       {activeTab === 'agence' && <AgencyTab />}
       {activeTab === 'declaration' && <DeclarationTab />}
     </div>
