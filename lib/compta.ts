@@ -196,14 +196,40 @@ export async function saveBilling(b: ModelBilling): Promise<SaveResult> {
   }
 }
 
-/** Le % agence est stocké dans crm_models — source de vérité unique. */
-export async function saveCommission(modelId: string, rate: number): Promise<SaveResult> {
+/**
+ * Le % agence vit dans crm_models.commission — source de vérité partagée avec
+ * le module Management.
+ *
+ * UPSERT et non UPDATE : si la table crm_models est vide (l'app retombe alors
+ * sur la liste en dur du code), un UPDATE ne toucherait aucune ligne, ne
+ * lèverait aucune erreur, et la valeur reviendrait à sa valeur d'origine au
+ * rechargement — sans que personne ne comprenne pourquoi.
+ */
+export async function saveCommission(model: Model, rate: number): Promise<SaveResult> {
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('crm_models')
-      .update({ commission: rate })
-      .eq('id', modelId);
+      .upsert(
+        {
+          id: model.id,
+          name: model.name,
+          pseudo: model.pseudo,
+          platforms: model.platforms,
+          username: model.username,
+          manager: model.manager,
+          commission: rate,
+          status: model.status,
+          drive_link: model.driveLink ?? null,
+          notion_link: model.notionLink ?? null,
+          avatar: model.avatar ?? null,
+        },
+        { onConflict: 'id' },
+      )
+      .select('id');
     if (error) return { ok: false, error: error.message };
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Aucune ligne écrite dans crm_models — vérifiez les policies RLS." };
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Erreur réseau' };
@@ -266,6 +292,8 @@ export interface CommissionInvoice {
   issuedAt: string;
   paidAt: string;
   notes: string;
+  sentAt: string;
+  sentTo: string;
   fxRate: number;
   fxDate: string;
   fxSource: string;
@@ -296,6 +324,8 @@ export function emptyInvoice(
     issuedAt: '',
     paidAt: '',
     notes: '',
+    sentAt: '',
+    sentTo: '',
     fxRate: 1,
     fxDate: '',
     fxSource: '',
@@ -372,6 +402,8 @@ function rowToInvoice(r: Row): CommissionInvoice {
     issuedAt: str(r.issued_at),
     paidAt: str(r.paid_at),
     notes: str(r.notes),
+    sentAt: str(r.sent_at),
+    sentTo: str(r.sent_to),
     fxRate: num(r.fx_rate, 1),
     fxDate: str(r.fx_date),
     fxSource: str(r.fx_source),
@@ -398,6 +430,8 @@ function invoiceToRow(i: CommissionInvoice): Row {
     issued_at: i.issuedAt,
     paid_at: i.paidAt,
     notes: i.notes.trim(),
+    sent_at: i.sentAt,
+    sent_to: i.sentTo,
     fx_rate: i.fxRate,
     fx_date: i.fxDate,
     fx_source: i.fxSource,
@@ -739,4 +773,33 @@ export async function takeNextInvoiceNumber(): Promise<{ number: string } | { er
   const res = await saveAgency({ ...a, nextNumber: a.nextNumber + 1 });
   if (!res.ok) return { error: res.error ?? 'Impossible de réserver le numéro de facture.' };
   return { number };
+}
+
+/** Lecture ciblée d'une facture — utilisée côté serveur avant envoi. */
+export async function loadInvoice(
+  modelId: string,
+  period: string,
+): Promise<CommissionInvoice | null> {
+  return safeRead(async () => {
+    const { data, error } = await supabase
+      .from('crm_commission_invoices')
+      .select('*')
+      .eq('model_id', modelId)
+      .eq('period', period)
+      .maybeSingle();
+    if (!error && data) return rowToInvoice(data as Row);
+    return null;
+  }, null);
+}
+
+export async function loadBillingFor(modelId: string): Promise<ModelBilling | null> {
+  return safeRead(async () => {
+    const { data, error } = await supabase
+      .from('crm_model_billing')
+      .select('*')
+      .eq('model_id', modelId)
+      .maybeSingle();
+    if (!error && data) return rowToBilling(data as Row);
+    return null;
+  }, null);
 }

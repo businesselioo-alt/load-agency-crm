@@ -10,7 +10,7 @@ import {
   computeCommission, emptyInvoice, findModelForUser, formatMoney,
   loadAllBilling, loadInvoicesForModel, periodLabel, recentPeriods, safeLoadModels, saveInvoice,
 } from '@/lib/compta';
-import { Card, TextInput, GoldButton, Banner, EmptyState } from './ui';
+import { Card, NumberInput, GoldButton, Banner, EmptyState } from './ui';
 
 /**
  * Vue de la créatrice : elle déclare le montant qu'elle a reçu et sa devise.
@@ -128,14 +128,13 @@ export default function DeclarationTab({ forModel }: { forModel?: Model | null }
                   <div className="flex items-end gap-2 flex-1 min-w-64">
                     <div>
                       <label className="block text-[10px] text-[#666] mb-1">Montant reçu</label>
-                      <TextInput
-                        type="number"
+                      <NumberInput
                         min={0}
                         step="0.01"
                         disabled={locked || pending}
-                        value={row.grossAmount || ''}
+                        value={row.grossAmount}
                         placeholder="0.00"
-                        onChange={(e) => patch(period, { grossAmount: Number(e.target.value) })}
+                        onValueChange={(n) => patch(period, { grossAmount: n })}
                         className="!w-36 !py-2"
                       />
                     </div>

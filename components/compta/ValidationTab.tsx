@@ -14,7 +14,7 @@ import {
   saveInvoice, takeNextInvoiceNumber, emptyBilling,
 } from '@/lib/compta';
 import { downloadInvoicePdf, invoicePdfBlobUrl } from '@/lib/pdf-invoice';
-import { Card, TextInput, Banner, EmptyState } from './ui';
+import { Card, TextInput, NumberInput, Banner, EmptyState } from './ui';
 
 /**
  * Vue agence : ce que chaque modèle a déclaré pour une période, et la
@@ -32,6 +32,9 @@ export default function ValidationTab() {
   const [error, setError] = useState<string | null>(null);
   const [refusing, setRefusing] = useState<string | null>(null);
   const [refusalNote, setRefusalNote] = useState('');
+  const [sending, setSending] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+  const [confirmSend, setConfirmSend] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -155,8 +158,40 @@ export default function ValidationTab() {
     }
   };
 
-  const markSent = (m: Model) =>
-    persist(m, { status: 'facturee', issuedAt: rowFor(m).issuedAt || new Date().toISOString().slice(0, 10) });
+  /**
+   * Envoi réel. Le navigateur ne transmet que l'identifiant de la facture :
+   * le serveur reconstruit le destinataire, le montant et le PDF depuis la
+   * base. Impossible de forger une adresse ou un montant depuis ici.
+   */
+  const send = async (m: Model) => {
+    setSending(m.id);
+    setError(null);
+    try {
+      const res = await fetch('/api/invoices/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: m.id, period }),
+      });
+      const data = (await res.json()) as { error?: string; to?: string; warning?: string };
+      if (!res.ok) {
+        setError(data.error ?? "Envoi impossible.");
+        return;
+      }
+      if (data.warning) setError(data.warning);
+      const now = new Date().toISOString().slice(0, 10);
+      setInvoices((prev) => ({
+        ...prev,
+        [m.id]: { ...rowFor(m), status: 'facturee', sentAt: now, sentTo: data.to ?? '' },
+      }));
+      setSent(m.id);
+      setTimeout(() => setSent(null), 4000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Envoi impossible.");
+    } finally {
+      setSending(null);
+      setConfirmSend(null);
+    }
+  };
 
   const totals = useMemo(() => {
     const pending: Record<string, number> = {};
@@ -277,14 +312,13 @@ export default function ValidationTab() {
                       </td>
 
                       <td className="px-4 py-3">
-                        <TextInput
-                          type="number"
+                        <NumberInput
                           min={0}
                           step="0.01"
                           disabled={locked}
-                          value={i.grossAmount || ''}
+                          value={i.grossAmount}
                           placeholder="0"
-                          onChange={(e) => patch(m, { grossAmount: Number(e.target.value) })}
+                          onValueChange={(n) => patch(m, { grossAmount: n })}
                           onBlur={() => persist(m)}
                           className="!w-28 !py-1.5 !px-2 text-right"
                         />
@@ -328,13 +362,40 @@ export default function ValidationTab() {
                         {i.invoiceNumber && (
                           <p className="text-[10px] text-[#C9A84C] mt-1">{i.invoiceNumber}</p>
                         )}
-                        {i.validatedBy && isBillable(i.status) && (
+                        {i.sentAt && (
+                          <p className="text-[10px] text-[#444] mt-0.5">
+                            envoyée le {new Date(`${i.sentAt}T00:00:00`).toLocaleDateString('fr-FR')}
+                          </p>
+                        )}
+                        {i.validatedBy && isBillable(i.status) && !i.sentAt && (
                           <p className="text-[10px] text-[#444] mt-0.5">par {i.validatedBy}</p>
                         )}
                       </td>
 
                       <td className="px-4 py-3">
-                        {refusing === m.id ? (
+                        {confirmSend === m.id ? (
+                          <div className="flex flex-col gap-2 min-w-56">
+                            <p className="text-[11px] text-[#888] leading-snug">
+                              Envoyer {i.invoiceNumber} à{' '}
+                              <span className="text-white">{b?.email ?? '—'}</span> ?
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => send(m)}
+                                disabled={sending === m.id}
+                                className="px-2.5 py-1 rounded-lg text-[11px] bg-[#C9A84C] text-black font-semibold hover:bg-[#d9b95c] transition disabled:opacity-40"
+                              >
+                                {sending === m.id ? 'Envoi...' : 'Confirmer'}
+                              </button>
+                              <button
+                                onClick={() => setConfirmSend(null)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] text-[#666] hover:text-white transition"
+                              >
+                                Annuler
+                              </button>
+                            </div>
+                          </div>
+                        ) : refusing === m.id ? (
                           <div className="flex flex-col gap-2 min-w-52">
                             <TextInput
                               autoFocus
@@ -403,13 +464,16 @@ export default function ValidationTab() {
                                 </button>
                                 {i.status === 'valide' && (
                                   <button
-                                    onClick={() => markSent(m)}
-                                    disabled={busyId === m.id || !i.invoiceNumber}
-                                    title={i.invoiceNumber ? 'Marquer comme envoyée' : "Génère d'abord la facture"}
+                                    onClick={() => setConfirmSend(m.id)}
+                                    disabled={sending === m.id || !i.invoiceNumber}
+                                    title={i.invoiceNumber ? 'Envoyer la facture par email' : "Génère d'abord la facture"}
                                     className="p-2 text-[#555] hover:text-violet-300 transition disabled:opacity-30"
                                   >
                                     <Send size={15} />
                                   </button>
+                                )}
+                                {sent === m.id && (
+                                  <span className="text-[11px] text-emerald-400">Envoyée</span>
                                 )}
                                 {i.status === 'valide' && !i.invoiceNumber && (
                                   <button

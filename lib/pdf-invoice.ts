@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import type { AgencySettings, CommissionInvoice, Currency, ModelBilling } from './compta';
 import { bankBlock, billingDisplayName } from './compta';
+import { LOGO_GOLD_PNG, LOGO_RATIO } from './logo-asset';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Facture de commission, mise en page calquée sur les factures Revolut
@@ -63,65 +64,6 @@ export function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Le logo source est doré sur fond noir. On le recolore en doré sur fond
- * transparent, puis on le pose sur une pastille sombre — le même badge rond
- * que sur les factures Revolut.
- */
-async function loadLogo(): Promise<string | null> {
-  if (typeof document === 'undefined') return null;
-  try {
-    const res = await fetch('/logo-load.png');
-    if (!res.ok) return null;
-    const bitmap = await createImageBitmap(await res.blob());
-    const c = document.createElement('canvas');
-    c.width = bitmap.width;
-    c.height = bitmap.height;
-    const ctx = c.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(bitmap, 0, 0);
-
-    const img = ctx.getImageData(0, 0, c.width, c.height);
-    const d = img.data;
-    let minX = c.width, minY = c.height, maxX = 0, maxY = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      const lum = Math.max(d[i], d[i + 1], d[i + 2]);
-      const a = Math.max(0, Math.min(255, Math.round(((lum - 45) / 150) * 255)));
-      d[i] = GOLD[0];
-      d[i + 1] = GOLD[1];
-      d[i + 2] = GOLD[2];
-      d[i + 3] = a;
-      if (a > 30) {
-        const p = i / 4;
-        const x = p % c.width;
-        const y = Math.floor(p / c.width);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    if (maxX <= minX || maxY <= minY) return null;
-
-    const pad = Math.round((maxX - minX) * 0.05);
-    const cx = Math.max(0, minX - pad);
-    const cy = Math.max(0, minY - pad);
-    const cw = Math.min(c.width - cx, maxX - minX + pad * 2);
-    const ch = Math.min(c.height - cy, maxY - minY + pad * 2);
-
-    const out = document.createElement('canvas');
-    out.width = cw;
-    out.height = ch;
-    const octx = out.getContext('2d');
-    if (!octx) return null;
-    octx.drawImage(c, cx, cy, cw, ch, 0, 0, cw, ch);
-    return out.toDataURL('image/png');
-  } catch {
-    return null;
-  }
-}
-
 export interface InvoiceContext {
   invoice: CommissionInvoice;
   billing: ModelBilling;
@@ -135,14 +77,12 @@ export async function buildInvoicePdf(ctx: InvoiceContext): Promise<jsPDF> {
   const cur = inv.currency;
 
   // ── En-tête ────────────────────────────────────────────────────────────────
-  const logo = await loadLogo();
   const badgeR = 9;
   doc.setFillColor(...BADGE);
   doc.circle(M + badgeR, M + badgeR, badgeR, 'F');
-  if (logo) {
-    const w = 12.5;
-    doc.addImage(logo, 'PNG', M + badgeR - w / 2, M + badgeR - w / 4.1, w, w / 2.05);
-  }
+  const logoW = 12.5;
+  const logoH = logoW / LOGO_RATIO;
+  doc.addImage(LOGO_GOLD_PNG, 'PNG', M + badgeR - logoW / 2, M + badgeR - logoH / 2, logoW, logoH);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(24);

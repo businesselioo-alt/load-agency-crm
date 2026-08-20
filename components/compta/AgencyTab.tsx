@@ -6,7 +6,7 @@ import {
   AgencySettings, CURRENCIES, DEFAULT_AGENCY,
   agencyMissingFields, formatInvoiceNumber, loadAgency, saveAgency,
 } from '@/lib/compta';
-import { Card, Field, TextInput, TextArea, GoldButton, Banner, SectionTitle } from './ui';
+import { Card, Field, TextInput, NumberInput, TextArea, GoldButton, Banner, SectionTitle } from './ui';
 
 const PLACEHOLDER_BANK = [
   'Account holder: LoadScale LLC',
@@ -143,20 +143,18 @@ export default function AgencyTab() {
             label="Prochain numéro"
             hint={`Prochaine facture : ${formatInvoiceNumber(draft.invoicePrefix, draft.nextNumber)}`}
           >
-            <TextInput
-              type="number"
+            <NumberInput
               min={1}
               value={draft.nextNumber}
-              onChange={(e) => patch({ nextNumber: Number(e.target.value) })}
+              onValueChange={(n) => patch({ nextNumber: n })}
             />
           </Field>
           <Field label="Délai de paiement (jours)" hint="0 = paiement à réception">
-            <TextInput
-              type="number"
+            <NumberInput
               min={0}
               max={120}
               value={draft.paymentDays}
-              onChange={(e) => patch({ paymentDays: Number(e.target.value) })}
+              onValueChange={(n) => patch({ paymentDays: n })}
             />
           </Field>
           <Field label="Libellé de la prestation" className="md:col-span-3">

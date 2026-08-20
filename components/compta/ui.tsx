@@ -107,3 +107,55 @@ export function EmptyState({ title, subtitle }: { title: string; subtitle?: stri
     </div>
   );
 }
+
+/**
+ * Champ numérique.
+ *
+ * Un <input type="number"> manipule du texte : si le champ affiche « 0 » et
+ * qu'on tape « 70 » à la suite, la valeur brute devient « 070 » et reste
+ * affichée ainsi. On tient donc une chaîne locale pendant la saisie, on
+ * supprime les zéros de tête, et on ne réaffiche la valeur du parent qu'une
+ * fois le champ quitté. Un zéro s'affiche comme un champ vide, pour qu'on
+ * puisse taper directement par-dessus.
+ */
+export function NumberInput({
+  value,
+  onValueChange,
+  className = '',
+  onFocus,
+  onBlur,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
+  value: number;
+  onValueChange: (n: number) => void;
+}) {
+  const [text, setText] = React.useState('');
+  const [focused, setFocused] = React.useState(false);
+
+  const asText = (n: number) => (n === 0 ? '' : String(n));
+  const display = focused ? text : asText(value);
+
+  return (
+    <input
+      {...rest}
+      type="number"
+      inputMode="decimal"
+      value={display}
+      onFocus={(e) => {
+        setText(asText(value));
+        setFocused(true);
+        onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        setFocused(false);
+        onBlur?.(e);
+      }}
+      onChange={(e) => {
+        const cleaned = e.target.value.replace(/^(-?)0+(?=\d)/, '$1');
+        setText(cleaned);
+        onValueChange(cleaned === '' || cleaned === '-' ? 0 : Number(cleaned));
+      }}
+      className={`${base} ${className}`}
+    />
+  );
+}

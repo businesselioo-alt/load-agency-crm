@@ -7,7 +7,7 @@ import {
   ModelBilling, SaveResult, COMPANY_TYPES, billingDisplayName,
   emptyBilling, loadAllBilling, missingFields, safeLoadModels, saveBilling, saveCommission,
 } from '@/lib/compta';
-import { Card, Field, TextInput, TextArea, GoldButton, Banner, EmptyState, SectionTitle } from './ui';
+import { Card, Field, TextInput, NumberInput, TextArea, GoldButton, Banner, EmptyState, SectionTitle } from './ui';
 
 export default function BillingTab() {
   const [models, setModels] = useState<Model[]>([]);
@@ -60,13 +60,15 @@ export default function BillingTab() {
 
   const submit = async () => {
     if (!draft) return;
+    const model = models.find((x) => x.id === draft.modelId);
+    if (!model) return;
     setSaving(true);
     setFeedback(null);
 
     const [resBilling, resRate] = await Promise.all([
       saveBilling(draft),
       draftRate !== rates[draft.modelId]
-        ? saveCommission(draft.modelId, draftRate)
+        ? saveCommission(model, draftRate)
         : Promise.resolve<SaveResult>({ ok: true }),
     ]);
 
@@ -189,13 +191,12 @@ export default function BillingTab() {
                         />
                       </Field>
                       <Field label="% pour l'agence" hint="Partagé avec le module Management">
-                        <TextInput
-                          type="number"
+                        <NumberInput
                           min={0}
                           max={100}
                           step="0.5"
                           value={draftRate}
-                          onChange={(e) => setDraftRate(Number(e.target.value))}
+                          onValueChange={setDraftRate}
                         />
                       </Field>
                       <Field label="Adresse complète" required className="md:col-span-2">
