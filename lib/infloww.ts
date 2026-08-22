@@ -124,6 +124,28 @@ export interface CreatorsDebug {
   rawLouValmontFull: unknown;
 }
 
+/**
+ * La liste des créatrices, mémorisée quelques minutes.
+ *
+ * Elle ne change qu'à l'ajout d'une créatrice — quelques fois par mois — alors
+ * qu'elle était redemandée à chaque rafraîchissement de l'écran des ventes, à
+ * chaque passage du cron et à chaque diagnostic. Infloww finit par refuser, la
+ * liste revient vide, et l'écran se vide sans explication.
+ *
+ * Cinq minutes suffisent : une créatrice ajoutée apparaît au pire cinq minutes
+ * plus tard, ce qui est sans conséquence, et le nombre d'appels est divisé par
+ * dix.
+ */
+type CreatorsResult = {
+  map: Map<string, CreatorRef>;
+  byPid: Map<string, CreatorRef>;
+  raw: Map<string, Record<string, unknown>>;
+  debug: CreatorsDebug;
+};
+
+let creatorsCache: { at: number; value: CreatorsResult } | null = null;
+const CREATORS_TTL_MS = 5 * 60 * 1000;
+
 export async function getConnectedCreators(): Promise<{
   map: Map<string, CreatorRef>;
   /** Les mêmes créatrices, indexées par identifiant OnlyFans immuable. */
@@ -132,6 +154,12 @@ export async function getConnectedCreators(): Promise<{
   raw: Map<string, Record<string, unknown>>;
   debug: CreatorsDebug;
 }> {
+  // Une liste vide n'est jamais mise en cache : ce serait figer un échec pour
+  // cinq minutes.
+  if (creatorsCache && Date.now() - creatorsCache.at < CREATORS_TTL_MS) {
+    return creatorsCache.value;
+  }
+
   const map = new Map<string, CreatorRef>();
   const byPid = new Map<string, CreatorRef>();
   const raw = new Map<string, Record<string, unknown>>();
@@ -169,7 +197,13 @@ export async function getConnectedCreators(): Promise<{
       const url = `${BASE}/creators?${params}`;
       console.log('[infloww] GET', url);
 
-      const res = await fetch(url, { headers: inflowwHeaders(oid), cache: 'no-store' });
+      // Deux essais avant d'abandonner : un refus pour cause de débit est
+      // passager, et renoncer au premier vide l'écran d'un coup.
+      let res = await fetch(url, { headers: inflowwHeaders(oid), cache: 'no-store' });
+      if (!res.ok && (res.status === 429 || res.status >= 500)) {
+        await new Promise((r) => setTimeout(r, 1500));
+        res = await fetch(url, { headers: inflowwHeaders(oid), cache: 'no-store' });
+      }
       console.log('[infloww] creators status:', res.status, '| oid:', oid);
       if (!res.ok) {
         const body = await res.text();
@@ -250,7 +284,7 @@ export async function getConnectedCreators(): Promise<{
 
   console.log('[infloww] creatorsMap size:', map.size, '| userNames:', [...map.keys()]);
 
-  return {
+  const resultat: CreatorsResult = {
     map,
     byPid,
     raw,
@@ -275,6 +309,9 @@ export async function getConnectedCreators(): Promise<{
       rawLouValmontFull: rawLouValmontFull ?? rawFirstCreatorFull,
     },
   };
+
+  if (map.size > 0) creatorsCache = { at: Date.now(), value: resultat };
+  return resultat;
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────

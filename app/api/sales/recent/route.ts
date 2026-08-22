@@ -89,9 +89,24 @@ export async function GET(request: Request) {
   const limit = Math.min(Math.max(Number(params.get('limit') ?? 100), 1), 500);
 
   try {
-    const { map } = await getConnectedCreators();
+    const { map, debug } = await getConnectedCreators();
     if (map.size === 0) {
-      return NextResponse.json({ sales: [], creators: [], erreurs: ['Aucune créatrice connectée.'] });
+      // Une liste vide a plusieurs causes très différentes — clé absente, clé
+      // refusée, pôle inconnu — et les confondre coûte du temps. On dit
+      // laquelle, sans jamais divulguer la clé elle-même.
+      const cle = process.env.INFLOWW_API_KEY ?? '';
+      const oid = process.env.INFLOWW_OID ?? '';
+      return NextResponse.json({
+        sales: [],
+        creators: [],
+        erreurs: ['Aucune créatrice connectée.'],
+        pourquoi: {
+          cleRenseignee: cle.length > 0,
+          cleLongueur: cle.length,
+          oidRenseigne: oid.length > 0,
+          reponsesInfloww: debug.oidErrors,
+        },
+      });
     }
 
     const end = new Date();
