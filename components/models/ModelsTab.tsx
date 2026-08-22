@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   Plus, ChevronDown, ChevronRight, Save, Trash2, AlertTriangle, ExternalLink, Search,
 } from 'lucide-react';
@@ -199,10 +199,50 @@ export default function ModelsTab() {
   }
 
   const q = query.trim().toLowerCase();
-  const visible = models.filter((m) => {
+  const filtered = models.filter((m) => {
     if (!q) return true;
     const usernames = Object.values(billing[m.id]?.usernames ?? {}).join(' ');
     return m.name.toLowerCase().includes(q) || usernames.toLowerCase().includes(q);
+  });
+
+  /**
+   * Regroupement par présence plateforme. Purement visuel : on réordonne
+   * l'affichage, aucune donnée n'est touchée.
+   *
+   * Reveal n'a pas son propre groupe — croiser trois plateformes donnerait sept
+   * catégories illisibles pour deux ou trois créatrices concernées. Celles qui
+   * n'entrent dans aucun des trois cas tombent dans « Autres » plutôt que de
+   * disparaître de la liste.
+   */
+  const GROUPS = [
+    { key: 'both', label: 'OF et MYM' },
+    { key: 'of', label: 'OF uniquement' },
+    { key: 'mym', label: 'MYM uniquement' },
+    { key: 'autres', label: 'Autres' },
+  ] as const;
+
+  const groupOf = (m: Model): string => {
+    const mym = m.platforms.includes('MYM');
+    const of = m.platforms.includes('OF');
+    if (mym && of) return 'both';
+    if (of) return 'of';
+    if (mym) return 'mym';
+    return 'autres';
+  };
+
+  const counts: Record<string, number> = {};
+  filtered.forEach((m) => {
+    const k = groupOf(m);
+    counts[k] = (counts[k] ?? 0) + 1;
+  });
+
+  // Les créatrices sont réordonnées groupe par groupe ; l'en-tête est posé sur
+  // la première de chaque groupe.
+  const visible = GROUPS.flatMap(({ key }) => filtered.filter((m) => groupOf(m) === key));
+  const firstOfGroup = new Set<string>();
+  GROUPS.forEach(({ key }) => {
+    const first = visible.find((m) => groupOf(m) === key);
+    if (first) firstOfGroup.add(first.id);
   });
 
   return (
@@ -246,9 +286,22 @@ export default function ModelsTab() {
             const st = MODEL_STATUS_STYLES[m.status];
             const b = billing[m.id];
             const incomplete = !b || missingFields(b).length > 0;
+            const group = groupOf(m);
+            const header = firstOfGroup.has(m.id)
+              ? GROUPS.find((g) => g.key === group)?.label ?? ''
+              : '';
 
             return (
-              <div key={m.id} className="bg-[#111] border border-[#1f1f1f] rounded-2xl overflow-hidden">
+              <Fragment key={m.id}>
+                {header && (
+                  <div className="flex items-baseline gap-2 pt-4 first:pt-0">
+                    <h3 className="text-xs font-semibold text-[#666] uppercase tracking-wider">
+                      {header}
+                    </h3>
+                    <span className="text-[11px] text-[#3a3a3a]">{counts[group]}</span>
+                  </div>
+                )}
+                <div className="bg-[#111] border border-[#1f1f1f] rounded-2xl overflow-hidden">
                 <button
                   onClick={() => (isOpen ? cancel() : open(m))}
                   className="w-full flex items-center gap-3 px-5 py-4 hover:bg-[#141414] transition text-left"
@@ -612,7 +665,8 @@ export default function ModelsTab() {
                     )}
                   </div>
                 )}
-              </div>
+                </div>
+              </Fragment>
             );
           })}
         </div>
