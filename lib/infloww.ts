@@ -82,6 +82,17 @@ function inflowwHeaders(oid?: string): Record<string, string> {
 export interface CreatorRef {
   id: number;
   oid: string;
+  /**
+   * L'identifiant interne du compte OnlyFans — la seule identité stable.
+   *
+   * `userName` est le pseudo affiché : Infloww le fige au moment de la
+   * connexion et ne le rafraîchit pas quand la créatrice le change sur OF. Le
+   * CRM se retrouve alors à chercher un pseudo que plus personne ne porte, et
+   * la créatrice disparaît du dashboard sans qu'aucune erreur ne le signale.
+   * `platformPid`, lui, ne change jamais.
+   */
+  platformPid: string;
+  userName: string;
 }
 
 export interface CreatorsDebug {
@@ -115,11 +126,14 @@ export interface CreatorsDebug {
 
 export async function getConnectedCreators(): Promise<{
   map: Map<string, CreatorRef>;
+  /** Les mêmes créatrices, indexées par identifiant OnlyFans immuable. */
+  byPid: Map<string, CreatorRef>;
   /** L'objet brut de chaque créatrice, pour en dériver un nom lisible. */
   raw: Map<string, Record<string, unknown>>;
   debug: CreatorsDebug;
 }> {
   const map = new Map<string, CreatorRef>();
+  const byPid = new Map<string, CreatorRef>();
   const raw = new Map<string, Record<string, unknown>>();
   let firstPageRaw: Record<string, unknown> | null = null;
   let listPath = 'unknown';
@@ -202,7 +216,10 @@ export async function getConnectedCreators(): Promise<{
             if (!duplicates.includes(key)) duplicates.push(key);
             continue;
           }
-          map.set(key, { id: Number(id), oid });
+          const platformPid = String(raw2.platformPid ?? raw2.platform_pid ?? '');
+          const ref: CreatorRef = { id: Number(id), oid, platformPid, userName: key };
+          map.set(key, ref);
+          if (platformPid) byPid.set(platformPid, ref);
           raw.set(key, raw2);
           byOid[oid] += 1;
           // Le pôle est un libellé porté par la créatrice (`tagName`), pas une
@@ -235,6 +252,7 @@ export async function getConnectedCreators(): Promise<{
 
   return {
     map,
+    byPid,
     raw,
     debug: {
       totalFound: map.size,

@@ -10,6 +10,7 @@ import {
   type SumDebug,
 } from '@/lib/infloww';
 import { ensureModelsFromInfloww } from '@/lib/infloww-sync-models';
+import { loadIdentities, resolveCreator, rememberIdentity } from '@/lib/infloww-identity';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -134,7 +135,16 @@ export async function GET() {
     console.log('[sync] already synced this month:', alreadySynced.size, 'entries');
 
     // ── 1. Resolve creators ────────────────────────────────────────────────
-    const { map: creatorsMap, raw: creatorsRaw, debug: creatorsDebug } = await getConnectedCreators();
+    const {
+      map: creatorsMap,
+      byPid: creatorsByPid,
+      raw: creatorsRaw,
+      debug: creatorsDebug,
+    } = await getConnectedCreators();
+
+    // Les identités déjà apprises : elles priment sur le pseudo, qui peut être
+    // périmé des deux côtés.
+    const identities = await loadIdentities(supabase);
 
     // Toute créatrice Infloww sans fiche CRM en obtient une, identifiée par son
     // username OnlyFans. C'est ce qui fait qu'ajouter une créatrice dans
@@ -158,26 +168,55 @@ export async function GET() {
     // manquent au dashboard, et le nom affiché ici est celui à recopier dans
     // le champ « Username sur OF » de la fiche concernée.
     const requested = new Set(Object.values(mapping).map((u) => u.toLowerCase()));
-    const unmatchedInflowwAccounts = [...creatorsMap.keys()].filter(
-      (u) => !requested.has(u.toLowerCase()),
+    const claimedPids = new Set(
+      [...identities.values()].map((i) => i.platformPid),
     );
+    const unmatchedInflowwAccounts = [...creatorsMap.entries()]
+      .filter(([u, ref]) => !requested.has(u.toLowerCase()) && !claimedPids.has(ref.platformPid))
+      .map(([u]) => u);
+
+    // Ce que la résolution a appris à ce passage — le bloc à lire quand un
+    // pseudo a changé : `renamed` liste les créatrices retrouvées malgré lui.
+    const resolution: {
+      byPlatformPid: string[];
+      byUserName: string[];
+      renamed: { model: string; crmUserName: string; inflowwUserName: string }[];
+      identityErrors: string[];
+    } = { byPlatformPid: [], byUserName: [], renamed: [], identityErrors: [] };
 
     // ── 2. Per-model sync ──────────────────────────────────────────────────
     for (const [modelName, userName] of Object.entries(mapping)) {
-      const creator = creatorsMap.get(userName) ?? null;
+      // L'identifiant stable d'abord, le pseudo seulement en dernier recours.
+      const { ref: creator, matchedBy } = resolveCreator(
+        modelName, userName, identities, creatorsMap, creatorsByPid,
+      );
       const creatorId = creator?.id ?? null;
       const creatorOid = creator?.oid;
-      console.log(`[sync] ${modelName} (${userName}) → creatorId: ${creatorId} (pôle ${creatorOid ?? '—'})`);
+      console.log(`[sync] ${modelName} (${userName}) → creatorId: ${creatorId} (pôle ${creatorOid ?? '—'}, via ${matchedBy})`);
 
       const modelDebug: ModelDebug = { model: modelName, userName, creatorId, dates: [] };
 
-      if (!creatorId) {
+      if (!creatorId || !creator) {
         const msg = `${modelName}: "${userName}" not found in Infloww`;
         errors.push(msg);
         modelDebug.error = msg;
         debugModels.push(modelDebug);
         continue;
       }
+
+      // Retenir l'identifiant stable dès qu'on le voit : c'est ce qui rend le
+      // prochain changement de pseudo indolore.
+      if (matchedBy === 'platformPid') resolution.byPlatformPid.push(modelName);
+      else resolution.byUserName.push(modelName);
+      if (creator.userName.toLowerCase() !== userName.toLowerCase()) {
+        resolution.renamed.push({
+          model: modelName,
+          crmUserName: userName,
+          inflowwUserName: creator.userName,
+        });
+      }
+      const idErr = await rememberIdentity(supabase, modelName, creator);
+      if (idErr) resolution.identityErrors.push(`${modelName} : ${idErr}`);
 
       for (const { date, start: startTime, end: endTime } of allDayBounds) {
         // Skip historical days that are already in Supabase — their data is final.
@@ -410,6 +449,9 @@ export async function GET() {
           missingUsername,
           unmatchedInflowwAccounts,
         },
+        // Comment chaque créatrice a été retrouvée. `renamed` non vide = un
+        // pseudo a changé quelque part et le lien a tenu quand même.
+        resolution,
         // Quick summary for validation
         revenueTotalByDate: totals,
         // Full detail

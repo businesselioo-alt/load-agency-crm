@@ -19,7 +19,11 @@ export const INFLOWW_OF_LEGACY: Record<string, string> = {
   'Margot':  'margotguimaut',
   'Jeanne':  'jeannebourgot',
   'Lucie':   'u562177971',
-  'Lorie':   'lorincampion',
+  // Lorie a changé de handle sur OnlyFans ; Infloww affichait encore l'ancien
+  // (« lorincampion ») jusqu'à ce que le compte soit relié. Ce pseudo n'est
+  // qu'un point de départ : dès le premier passage réussi, l'identité bascule
+  // sur platformPid et un futur changement de handle ne cassera plus rien.
+  'Lorie':   'loriecampion',
   'Élodie':  'elodiemouvin',
   'Lilou':   'lucyscotlandd1',
 };
