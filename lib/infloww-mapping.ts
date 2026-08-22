@@ -3,30 +3,23 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 /**
  * Correspondance entre une créatrice du CRM et son compte Infloww.
  *
- * Elle était écrite en dur ici, ce qui rendait toute nouvelle créatrice
- * invisible du dashboard tant que personne ne modifiait le code. Elle se
- * construit désormais à partir des usernames saisis sur la fiche modèle.
+ * Elle était écrite en dur ici : sept surnoms — « Lou », « Lorie »… — associés
+ * à un username OnlyFans. Deux effets, tous deux invisibles depuis l'écran.
  *
- * Les sept entrées historiques restent en dur, et pour une raison précise :
- * `vg_daily_entries.model_name` conserve le nom sous lequel chaque créatrice a
- * été enregistrée depuis des mois. Basculer ces sept-là sur leur nom CRM
- * couperait leur historique en deux — le dashboard afficherait un trou pour
- * l'ancien nom et repartirait de zéro pour le nouveau. On préserve donc leur
- * clé d'origine, et on n'ajoute que ce qui manque.
+ * D'abord, toute créatrice absente de cette liste restait hors du dashboard
+ * tant que personne ne modifiait le code. Ensuite, et c'est le plus sournois :
+ * ces sept surnoms ne correspondaient à aucune fiche du CRM, alors que chacune
+ * de ces créatrices en avait une, sous son nom civil. La déduplication par
+ * username écartait donc systématiquement la vraie fiche au profit du surnom.
+ * Une même personne existait deux fois selon l'écran consulté, et l'adresse et
+ * les coordonnées bancaires saisies sur sa fiche ne servaient jamais.
+ *
+ * L'historique a été renommé vers les noms civils (voir
+ * supabase/infloww-noms-civils.sql) et la liste en dur n'a plus d'objet : les
+ * fiches sont désormais la seule source de vérité. On garde la constante vide
+ * plutôt que de la supprimer, pour ne pas casser les imports existants.
  */
-export const INFLOWW_OF_LEGACY: Record<string, string> = {
-  'Lou':     'louvalmont',
-  'Margot':  'margotguimaut',
-  'Jeanne':  'jeannebourgot',
-  'Lucie':   'u562177971',
-  // Lorie a changé de handle sur OnlyFans ; Infloww affichait encore l'ancien
-  // (« lorincampion ») jusqu'à ce que le compte soit relié. Ce pseudo n'est
-  // qu'un point de départ : dès le premier passage réussi, l'identité bascule
-  // sur platformPid et un futur changement de handle ne cassera plus rien.
-  'Lorie':   'loriecampion',
-  'Élodie':  'elodiemouvin',
-  'Lilou':   'lucyscotlandd1',
-};
+export const INFLOWW_OF_LEGACY: Record<string, string> = {};
 
 /** Conservé pour les imports existants. */
 export const INFLOWW_OF_MAPPING = INFLOWW_OF_LEGACY;
