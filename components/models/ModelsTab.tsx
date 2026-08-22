@@ -4,14 +4,14 @@ import { useEffect, useState } from 'react';
 import {
   Plus, ChevronDown, ChevronRight, Save, Trash2, AlertTriangle, ExternalLink, Search,
 } from 'lucide-react';
-import { MODELS, Model, ModelStatus, Platform } from '@/lib/data';
+import { Model, ModelStatus, Platform } from '@/lib/data';
 import {
   COMPANY_TYPES, CURRENCIES, Currency, ModelBilling, PLATFORMS,
-  emptyBilling, loadAllBilling, missingFields, rateFor, saveBilling,
+  emptyBilling, fullNameOf, loadAllBilling, missingFields, rateFor, saveBilling, splitFullName,
 } from '@/lib/compta';
 import {
   MODEL_STATUS_LABELS, MODEL_STATUS_STYLES,
-  deleteModel, emptyModel, loadModelSource, managersOf, saveModel, seedModels,
+  deleteModel, emptyModel, loadModelSource, saveModel, seedModels,
 } from '@/lib/modeles';
 import {
   Banner, EmptyState, GhostButton, GoldButton, NumberInput, SectionTitle, TextArea, TextInput,
@@ -35,6 +35,15 @@ export default function ModelsTab() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Model | null>(null);
   const [bDraft, setBDraft] = useState<ModelBilling | null>(null);
+  /**
+   * Le nom complet tel qu'il est en train d'être tapé.
+   *
+   * Il est stocké découpé en prénom / nom, mais le recomposer à chaque frappe
+   * supprimerait l'espace de fin — impossible alors de passer au nom de
+   * famille. On tient donc la chaîne saisie telle quelle, et on n'alimente les
+   * deux colonnes qu'en sortie.
+   */
+  const [nameDraft, setNameDraft] = useState('');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -58,7 +67,9 @@ export default function ModelsTab() {
   const open = (m: Model) => {
     setOpenId(m.id);
     setDraft({ ...m });
-    setBDraft(billing[m.id] ?? emptyBilling(m.id, m.name));
+    const b = billing[m.id] ?? emptyBilling(m.id, m.name);
+    setBDraft(b);
+    setNameDraft(fullNameOf(b));
     setError(null);
     setFeedback(null);
   };
@@ -188,13 +199,11 @@ export default function ModelsTab() {
   }
 
   const q = query.trim().toLowerCase();
-  const visible = models.filter(
-    (m) =>
-      !q ||
-      m.name.toLowerCase().includes(q) ||
-      m.pseudo.toLowerCase().includes(q) ||
-      m.manager.toLowerCase().includes(q),
-  );
+  const visible = models.filter((m) => {
+    if (!q) return true;
+    const usernames = Object.values(billing[m.id]?.usernames ?? {}).join(' ');
+    return m.name.toLowerCase().includes(q) || usernames.toLowerCase().includes(q);
+  });
 
   return (
     <div className="space-y-4">
@@ -254,8 +263,11 @@ export default function ModelsTab() {
                       {m.name || 'Nouvelle créatrice'}
                     </p>
                     <p className="text-[11px] text-[#555] truncate">
-                      {m.pseudo ? `@${m.pseudo}` : 'pseudo non renseigné'}
-                      {m.manager ? ` · ${m.manager}` : ''}
+                      {m.platforms
+                        .map((p) => b?.usernames?.[p])
+                        .filter(Boolean)
+                        .map((u) => `@${u}`)
+                        .join(' · ') || 'aucun username renseigné'}
                     </p>
                   </div>
 
@@ -293,28 +305,24 @@ export default function ModelsTab() {
                     <div>
                       <SectionTitle>Identité</SectionTitle>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
+                        <div className="md:col-span-2">
                           <label className="block text-xs font-medium text-[#888] mb-1.5">
-                            Prénom <span className="text-[#C9A84C]">*</span>
+                            Nom complet <span className="text-[#C9A84C]">*</span>
                           </label>
                           <TextInput
                             autoFocus
-                            value={bDraft.firstName}
-                            onChange={(e) => patchB({ firstName: e.target.value })}
-                            placeholder="Charlotte"
+                            value={nameDraft}
+                            onChange={(e) => {
+                              setNameDraft(e.target.value);
+                              patchB(splitFullName(e.target.value));
+                            }}
+                            placeholder="Charlotte Grace Mcknight"
                           />
+                          <p className="text-[10px] text-[#555] mt-1">
+                            Son nom civil, tel qu&apos;il doit apparaître sur ses factures.
+                          </p>
                         </div>
-                        <div>
-                          <label className="block text-xs font-medium text-[#888] mb-1.5">
-                            Nom de famille <span className="text-[#C9A84C]">*</span>
-                          </label>
-                          <TextInput
-                            value={bDraft.lastName}
-                            onChange={(e) => patchB({ lastName: e.target.value })}
-                            placeholder="Grace"
-                          />
-                        </div>
-                        <div>
+                        <div className="md:col-span-2">
                           <label className="block text-xs font-medium text-[#888] mb-1.5">
                             Email <span className="text-[#C9A84C]">*</span>
                           </label>
@@ -327,16 +335,6 @@ export default function ModelsTab() {
                           <p className="text-[10px] text-[#555] mt-1">
                             Sert à lui envoyer ses factures et à relier son compte CRM.
                           </p>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-[#888] mb-1.5">
-                            Pseudo interne
-                          </label>
-                          <TextInput
-                            value={draft.pseudo}
-                            onChange={(e) => patch({ pseudo: e.target.value })}
-                            placeholder="loujtf"
-                          />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-[#888] mb-1.5">
@@ -529,17 +527,6 @@ export default function ModelsTab() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-medium text-[#888] mb-1.5">
-                            Manager
-                          </label>
-                          <TextInput
-                            list="crm-managers"
-                            value={draft.manager}
-                            onChange={(e) => patch({ manager: e.target.value })}
-                            placeholder="Sadie"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-[#888] mb-1.5">
                             Statut
                           </label>
                           <select
@@ -566,16 +553,6 @@ export default function ModelsTab() {
                           <p className="text-[10px] text-[#555] mt-1">
                             Dossier racine surveillé par la synchronisation automatique.
                           </p>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-[#888] mb-1.5">
-                            Lien Notion
-                          </label>
-                          <TextInput
-                            value={draft.notionLink ?? ''}
-                            onChange={(e) => patch({ notionLink: e.target.value })}
-                            placeholder="https://notion.so/..."
-                          />
                         </div>
                       </div>
                     </div>
@@ -626,7 +603,7 @@ export default function ModelsTab() {
                         <GhostButton onClick={cancel}>Annuler</GhostButton>
                         <GoldButton
                           onClick={submit}
-                          disabled={busy || !`${bDraft.firstName}${bDraft.lastName}`.trim()}
+                          disabled={busy || !nameDraft.trim()}
                         >
                           <Save size={15} />
                           {busy ? 'Enregistrement...' : 'Enregistrer'}
@@ -641,11 +618,6 @@ export default function ModelsTab() {
         </div>
       )}
 
-      <datalist id="crm-managers">
-        {managersOf(models.length > 0 ? models : MODELS).map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
       <datalist id="crm-company-types">
         {COMPANY_TYPES.map((t) => (
           <option key={t} value={t} />

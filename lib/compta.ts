@@ -105,6 +105,24 @@ export function rateFor(
   return typeof specific === 'number' && specific >= 0 ? specific : fallback;
 }
 
+/** Le nom civil complet, recomposé depuis les deux colonnes de stockage. */
+export function fullNameOf(b: ModelBilling): string {
+  return `${b.firstName} ${b.lastName}`.trim();
+}
+
+/**
+ * Découpe un nom complet en prénom / nom.
+ *
+ * Les deux colonnes existent déjà et sont lues par le PDF de facture : on les
+ * conserve et on saisit un champ unique par-dessus. Le premier mot fait office
+ * de prénom, le reste de nom — « Charlotte Grace Mcknight » se réimprime à
+ * l'identique sur la facture, ce qui est le seul comportement qui compte ici.
+ */
+export function splitFullName(full: string): { firstName: string; lastName: string } {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  return { firstName: parts[0] ?? '', lastName: parts.slice(1).join(' ') };
+}
+
 /** Le nom qui doit apparaître sur une facture pour cette fiche. */
 export function billingDisplayName(b: ModelBilling, fallback = ''): string {
   if (b.hasCompany && b.companyName.trim()) return b.companyName.trim();
@@ -115,8 +133,10 @@ export function billingDisplayName(b: ModelBilling, fallback = ''): string {
 /** Champs manquants pour pouvoir émettre une facture propre. */
 export function missingFields(b: ModelBilling): string[] {
   const missing: string[] = [];
-  if (!b.firstName.trim()) missing.push('prénom');
-  if (!b.lastName.trim()) missing.push('nom');
+  // Le nom est saisi en un seul champ et découpé au stockage : c'est le nom
+  // complet qui doit être renseigné, pas chacune de ses deux moitiés — une
+  // créatrice mononyme ne doit pas bloquer sa facture.
+  if (!fullNameOf(b)) missing.push('nom complet');
   if (!b.email.trim()) missing.push('email');
   if (!b.address.trim()) missing.push('adresse');
   if (b.hasCompany) {
