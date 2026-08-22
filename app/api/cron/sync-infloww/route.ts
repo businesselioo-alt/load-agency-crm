@@ -110,8 +110,44 @@ async function creatorsDiagnostic() {
   const requested = new Set(Object.values(mapping).map((u) => u.toLowerCase()));
   const claimedPids = new Set([...identities.values()].map((i) => i.platformPid));
 
+  // L'état réel des fiches, sans interprétation : c'est la seule façon de
+  // savoir si un surnom historique a sa propre fiche ou n'est qu'une clé de
+  // mapping — et donc si une fusion créerait un doublon ou en supprimerait un.
+  const [{ data: rawModels }, { data: rawBilling }] = await Promise.all([
+    supabase.from('crm_models').select('id, name, platforms, status, username'),
+    supabase.from('crm_model_billing').select('model_id, usernames'),
+  ]);
+  const usernamesByModel = new Map<string, Record<string, string>>();
+  (rawBilling ?? []).forEach((b: Record<string, unknown>) => {
+    const u = b.usernames;
+    if (u && typeof u === 'object') {
+      usernamesByModel.set(b.model_id as string, u as Record<string, string>);
+    }
+  });
+  const crmModels = (rawModels ?? []).map((m: Record<string, unknown>) => ({
+    id: m.id,
+    name: m.name,
+    platforms: m.platforms,
+    status: m.status,
+    usernameField: m.username ?? '',
+    usernames: usernamesByModel.get(m.id as string) ?? {},
+  }));
+
+  // Les noms sous lesquels du chiffre d'affaires est déjà enregistré : un
+  // renommage doit les emporter avec lui, sinon l'historique devient orphelin.
+  const { data: historyRows } = await supabase
+    .from('vg_daily_entries')
+    .select('model_name, platform');
+  const historyNames: Record<string, number> = {};
+  (historyRows ?? []).forEach((r: Record<string, unknown>) => {
+    const k = `${r.platform as string}|${r.model_name as string}`;
+    historyNames[k] = (historyNames[k] ?? 0) + 1;
+  });
+
   return NextResponse.json({
     mode: 'diagnostic',
+    crmModels,
+    historyNames,
     creatorsFound: map.size,
     apiErrors: debug.apiErrors,
     tagCounts: debug.tagCounts,
