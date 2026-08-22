@@ -25,7 +25,7 @@ interface Sale {
   at: string;
 }
 
-const RAFRAICHISSEMENT_MS = 60_000;
+const RAFRAICHISSEMENT_MS = 30_000;
 
 function heure(iso: string): string {
   if (!iso) return '—';
@@ -61,6 +61,7 @@ export default function DirectPage() {
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur]     = useState<string>('');
   const [maj, setMaj]           = useState<Date | null>(null);
+  const [interrogees, setInterrogees] = useState(0);
 
   const charger = useCallback(async (h: number) => {
     setChargement(true);
@@ -68,9 +69,36 @@ export default function DirectPage() {
       const res  = await fetch(`/api/sales/recent?hours=${h}&limit=200`, { cache: 'no-store' });
       const json = await res.json();
       if (json.error) { setErreur(String(json.error)); return; }
-      setSales(json.sales ?? []);
+      // Fusion plutôt que remplacement.
+      //
+      // Une créatrice dont l'appel échoue disparaissait du fil, et ses ventes
+      // avec elle : la liste pouvait donc rétrécir d'un rafraîchissement à
+      // l'autre. En conservant ce qu'on a déjà vu, le fil ne recule jamais —
+      // une vente affichée y reste tant qu'elle est dans la fenêtre.
+      const arrivees: Sale[] = json.sales ?? [];
+      const limite = Date.now() - h * 3600 * 1000;
+      setSales((precedentes) => {
+        const parId = new Map(precedentes.map((v) => [v.id, v]));
+        arrivees.forEach((v) => parId.set(v.id, v));
+        return [...parId.values()]
+          .filter((v) => !v.at || new Date(v.at).getTime() >= limite)
+          .sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+      });
       setCreators(json.creators ?? []);
-      setErreur((json.erreurs ?? []).join(' · '));
+      // Zéro vente sans la moindre erreur est une réponse ambiguë : soit la
+      // nuit a été calme, soit personne n'a été interrogé. On distingue les
+      // deux à l'écran plutôt que d'afficher un vide muet.
+      const interrogees = Object.keys(json.parCreatrice ?? {}).length;
+      const messages = [...(json.erreurs ?? [])];
+      // Le motif précis du refus d'Infloww est déjà dans la réponse ; l'écran
+      // le taisait, ce qui laissait « aucune créatrice » sans explication.
+      const motifs = Object.values(json.pourquoi?.reponsesInfloww ?? {});
+      motifs.forEach((m) => messages.push(String(m).slice(0, 160)));
+      if ((json.sales ?? []).length === 0 && interrogees === 0 && motifs.length === 0) {
+        messages.push("Aucune créatrice n'a pu être interrogée.");
+      }
+      setInterrogees(interrogees);
+      setErreur(messages.join(' · '));
       setMaj(new Date());
     } catch (e) {
       setErreur(e instanceof Error ? e.message : 'Erreur réseau');
@@ -137,6 +165,9 @@ export default function DirectPage() {
         <span className="ml-auto text-sm text-[#888]">
           <span className="text-white font-semibold">{visibles.length}</span> ventes ·{' '}
           <span className="text-white font-semibold">{fmt(total)}</span>
+          {interrogees > 0 && (
+            <span className="text-[#555]"> · {interrogees} créatrices interrogées</span>
+          )}
         </span>
       </div>
 

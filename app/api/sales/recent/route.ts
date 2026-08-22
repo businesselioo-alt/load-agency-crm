@@ -83,8 +83,63 @@ export interface Sale {
   at: string;
 }
 
+/**
+ * De combien l'API est-elle en retard ?
+ *
+ * « Il manque des ventes » a deux causes possibles et opposées : soit notre
+ * lecture est incomplète, soit Infloww n'a pas encore la vente. Tant qu'on ne
+ * sait pas laquelle, toute correction est un pari. Cette mesure donne, pour
+ * chaque créatrice, l'âge de sa vente la plus récente et si l'API a pu tronquer
+ * sa réponse.
+ */
+async function mesurerRetard() {
+  const { map } = await getConnectedCreators();
+  const maintenant = new Date();
+  const debut = new Date(maintenant.getTime() - 6 * 3600 * 1000);
+
+  const lignes: unknown[] = [];
+  const refs = [...map.values()];
+
+  for (let i = 0; i < refs.length; i += 2) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 400));
+    const lot = await Promise.all(
+      refs.slice(i, i + 2).map(async (ref) => {
+        const { transactions, debug } = await getCreatorTransactionsDebug(
+          ref.id, debut.toISOString(), maintenant.toISOString(), ref.oid,
+        );
+        const instants = transactions
+          .map((t) => toIso(pick(t as Record<string, unknown>, TIME_KEYS)))
+          .filter(Boolean)
+          .sort();
+        const derniere = instants[instants.length - 1] ?? '';
+        return {
+          creatrice: ref.userName,
+          ventes6h: transactions.length,
+          derniereVente: derniere || null,
+          retardMinutes: derniere
+            ? Math.round((maintenant.getTime() - new Date(derniere).getTime()) / 60000)
+            : null,
+          troncaturePossible: debug.possibleTruncation,
+          erreur: debug.exception ?? debug.httpErrorBody,
+        };
+      }),
+    );
+    lignes.push(...lot);
+  }
+
+  return NextResponse.json({
+    mode: 'retard',
+    maintenant: maintenant.toISOString(),
+    // À comparer avec l'heure de la dernière vente visible dans Infloww :
+    // si Infloww l'affiche et que nous ne l'avons pas, le problème est chez
+    // nous ; sinon il est en amont, chez eux.
+    lignes,
+  });
+}
+
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
+  if (params.get('retard') === '1') return mesurerRetard();
   const hours = Math.min(Math.max(Number(params.get('hours') ?? 24), 1), 168);
   const limit = Math.min(Math.max(Number(params.get('limit') ?? 100), 1), 500);
 
@@ -122,37 +177,56 @@ export async function GET(request: Request) {
      * elle disparaissait du fil sans que rien ne le dise. Trois à la fois
      * passent, et un refus est désormais réessayé puis signalé.
      */
-    const LOT = 3;
+    const LOT = 2;
+    // Une courte pause entre les lots : les coupures de connexion viennent de
+    // rafales trop rapprochées, pas du volume total.
+    const PAUSE_MS = 400;
     const refs = [...map.values()];
     const perCreator: {
       ref: typeof refs[number];
       transactions: InflowwTransaction[];
       erreur: string | null;
+      troncature: boolean;
     }[] = [];
+
+    const ESSAIS_MAX = 3;
 
     const unAppel = async (ref: typeof refs[number], essai = 1): Promise<typeof perCreator[number]> => {
       try {
         const { transactions, debug } = await getCreatorTransactionsDebug(
           ref.id, startISO, endISO, ref.oid,
         );
+        // Une exception réseau ne produit pas de corps d'erreur HTTP : elle
+        // était donc invisible, et la créatrice disparaissait sans un mot.
+        if (debug.exception !== null) {
+          // Attente croissante : une connexion coupée se rétablit rarement
+          // dans la seconde qui suit.
+          if (essai < ESSAIS_MAX) {
+            await new Promise((r) => setTimeout(r, 800 * essai));
+            return unAppel(ref, essai + 1);
+          }
+          return { ref, transactions, erreur: `${ref.userName} : ${debug.exception}`, troncature: debug.possibleTruncation };
+        }
         if (debug.httpErrorBody !== null) {
           // 429 et 5xx sont passagers : un second essai suffit presque toujours.
-          if (essai === 1 && (debug.status === 429 || debug.status >= 500)) {
-            await new Promise((r) => setTimeout(r, 1200));
-            return unAppel(ref, 2);
+          if (essai < ESSAIS_MAX && (debug.status === 429 || debug.status >= 500)) {
+            await new Promise((r) => setTimeout(r, 800 * essai));
+            return unAppel(ref, essai + 1);
           }
           return {
             ref, transactions,
             erreur: `${ref.userName} : HTTP ${debug.status} — ${debug.httpErrorBody.slice(0, 120)}`,
+            troncature: debug.possibleTruncation,
           };
         }
-        return { ref, transactions, erreur: null };
+        return { ref, transactions, erreur: null, troncature: debug.possibleTruncation };
       } catch (e) {
-        return { ref, transactions: [], erreur: `${ref.userName} : ${String(e)}` };
+        return { ref, transactions: [], erreur: `${ref.userName} : ${String(e)}`, troncature: false };
       }
     };
 
     for (let i = 0; i < refs.length; i += LOT) {
+      if (i > 0) await new Promise((r) => setTimeout(r, PAUSE_MS));
       const lot = await Promise.all(refs.slice(i, i + LOT).map((r) => unAppel(r)));
       perCreator.push(...lot);
     }
@@ -198,7 +272,11 @@ export async function GET(request: Request) {
       total: sales.length,
       creators: [...map.values()].map((r) => r.userName).sort(),
       fenetre: { start: startISO, end: endISO, heures: hours },
+      maintenant: new Date().toISOString(),
       parCreatrice,
+      // Créatrices dont la réponse a pu être coupée : la seule façon de perdre
+      // des ventes sans le savoir.
+      troncatures: perCreator.filter((c) => c.troncature).map((c) => c.ref.userName),
       erreurs,
       // Le premier objet brut rencontré : il révèle les champs réellement
       // renvoyés, y compris ceux que la liste ci-dessus ne prévoit pas.

@@ -70,6 +70,18 @@ function inflowwHeaders(oid?: string): Record<string, string> {
   const base: Record<string, string> = {
     Authorization: process.env.INFLOWW_API_KEY ?? '',
     'Content-Type': 'application/json',
+    // Une connexion neuve à chaque appel.
+    //
+    // Node réutilise ses connexions ouvertes. Sur un serveur qui tourne en
+    // continu et n'interroge Infloww qu'une fois par minute, la passerelle
+    // d'en face ferme la connexion inactive entre-temps ; Node l'ignore et
+    // écrit dans un tuyau mort, ce qui produit un « TypeError: fetch failed »
+    // que même trois essais successifs ne rattrapent pas, puisqu'ils repiochent
+    // dans le même lot de connexions périmées.
+    //
+    // Le coût est une poignée de millisecondes par appel. Le bénéfice est un
+    // écran qui ne se vide plus au hasard.
+    Connection: 'close',
   };
   if (oid === SANS_POLE) return base;
   base['x-oid'] = oid ?? inflowwOids()[0] ?? '';
@@ -326,6 +338,14 @@ export interface TransactionsDebug {
   totalCount: number;
   firstRawTransaction: unknown;
   exception: string | null;       // stringified exception if fetch threw
+  /**
+   * La page était pleine et l'API n'a pas donné de curseur.
+   *
+   * C'est le seul cas où l'on peut perdre des ventes sans le savoir : si le
+   * tri est croissant, une page pleine sans suite signifie que les plus
+   * récentes manquent — exactement le symptôme « il manque des ventes ».
+   */
+  possibleTruncation: boolean;
 }
 
 export async function getCreatorTransactionsDebug(
@@ -342,6 +362,8 @@ export async function getCreatorTransactionsDebug(
   let firstUrl = '';
   let httpErrorBody: string | null = null;
   let exceptionStr: string | null = null;
+  let possibleTruncation = false;
+  const LIMITE = 100;
 
   try {
     do {
@@ -350,7 +372,7 @@ export async function getCreatorTransactionsDebug(
         platformCode: 'OnlyFans',
         startTime,
         endTime,
-        limit: '100',
+        limit: String(LIMITE),
       });
       if (cursor) params.set('cursor', cursor);
       const url = `${BASE}/transactions?${params}`;
@@ -390,10 +412,20 @@ export async function getCreatorTransactionsDebug(
       const hasMore    = json.hasMore    ?? td?.hasMore    ?? json.has_more;
       const nextCursor = json.cursor     ?? td?.cursor     ?? json.nextCursor;
       cursor = hasMore ? String(nextCursor ?? '') || undefined : undefined;
+      // Page pleine, aucune suite annoncée : on ne peut pas savoir si l'API a
+      // tout donné. On le signale plutôt que de conclure à tort.
+      if (list.length >= LIMITE && !cursor) possibleTruncation = true;
     } while (cursor);
   } catch (e) {
-    exceptionStr = String(e);
-    console.log('[infloww] getCreatorTransactions exception:', e);
+    // « TypeError: fetch failed » ne dit rien : Node range le motif réel
+    // (connexion coupée, DNS, délai dépassé) dans `cause`. Sans lui, on ne
+    // peut pas distinguer une surcharge d'une panne réseau.
+    const cause = (e as { cause?: unknown })?.cause;
+    const detail = cause
+      ? ` (${(cause as { code?: string })?.code ?? String(cause)})`
+      : '';
+    exceptionStr = `${String(e)}${detail}`;
+    console.log('[infloww] getCreatorTransactions exception:', e, '| cause:', cause);
   }
 
   return {
@@ -408,6 +440,7 @@ export async function getCreatorTransactionsDebug(
       totalCount: all.length,
       firstRawTransaction: all[0] ?? null,
       exception: exceptionStr,
+      possibleTruncation,
     },
   };
 }
