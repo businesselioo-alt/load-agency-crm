@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { INFLOWW_OF_MAPPING } from '@/lib/infloww-mapping';
+import { buildInflowwMapping } from '@/lib/infloww-mapping';
 import {
   getConnectedCreators,
   getCreatorTransactionsDebug,
@@ -133,12 +133,26 @@ export async function GET() {
 
     // ── 1. Resolve creators ────────────────────────────────────────────────
     const { map: creatorsMap, debug: creatorsDebug } = await getConnectedCreators();
+
+    // Le mapping vient des fiches modèles, plus les sept clés historiques.
+    // Ajouter une créatrice au dashboard = renseigner son username OF dans le
+    // CRM, plus aucune modification de code.
+    const { mapping, missingUsername, fromDatabase } = await buildInflowwMapping(supabase);
+
     console.log('[sync] creatorsMap size:', creatorsMap.size);
     console.log('[sync] creatorsMap entries:', JSON.stringify([...creatorsMap.entries()]));
-    console.log('[sync] userNames needed:', Object.values(INFLOWW_OF_MAPPING));
+    console.log('[sync] userNames needed:', Object.values(mapping));
+
+    // Comptes Infloww qu'aucune fiche CRM ne réclame : ce sont eux qui
+    // manquent au dashboard, et le nom affiché ici est celui à recopier dans
+    // le champ « Username sur OF » de la fiche concernée.
+    const requested = new Set(Object.values(mapping).map((u) => u.toLowerCase()));
+    const unmatchedInflowwAccounts = [...creatorsMap.keys()].filter(
+      (u) => !requested.has(u.toLowerCase()),
+    );
 
     // ── 2. Per-model sync ──────────────────────────────────────────────────
-    for (const [modelName, userName] of Object.entries(INFLOWW_OF_MAPPING)) {
+    for (const [modelName, userName] of Object.entries(mapping)) {
       const creatorId = creatorsMap.get(userName) ?? null;
       console.log(`[sync] ${modelName} (${userName}) → creatorId: ${creatorId}`);
 
@@ -359,6 +373,14 @@ export async function GET() {
       errors,
       timestamp: new Date().toISOString(),
       debug: {
+        // Diagnostic du mapping — à regarder en premier quand une créatrice
+        // manque au dashboard.
+        mapping: {
+          total: Object.keys(mapping).length,
+          fromDatabase,
+          missingUsername,
+          unmatchedInflowwAccounts,
+        },
         // Quick summary for validation
         revenueTotalByDate: totals,
         // Full detail

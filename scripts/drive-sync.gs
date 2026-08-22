@@ -34,8 +34,10 @@ var OVERLAP_MINUTES = 15;
  * 2. Menu déroulant des fonctions → « testConnection » → Exécuter.
  *    Autorise le script quand Google le demande.
  *    Consulte Exécutions : tu dois voir la liste de tes créatrices.
- * 3. Menu déroulant → « syncNow » → Exécuter, pour un premier passage réel.
- * 4. Icône Déclencheurs (réveil) → Ajouter un déclencheur :
+ * 3. Menu déroulant → « verifierDossiers » → Exécuter, pour voir l'arborescence
+ *    réelle de chaque créatrice sans rien écrire.
+ * 4. Menu déroulant → « syncNow » → Exécuter, pour un premier passage réel.
+ * 5. Icône Déclencheurs (réveil) → Ajouter un déclencheur :
  *       Fonction        : syncDrive
  *       Source          : Déclencheur horaire
  *       Type            : Minuteur (par minutes) → toutes les 10 minutes
@@ -85,6 +87,19 @@ function autoriser() {
   }
 }
 
+/**
+ * Deux passes, et l'ordre compte.
+ *
+ * La découverte de l'arborescence est rapide ; la collecte des fichiers est
+ * lente et bute sur la limite de 6 minutes d'Apps Script. Les mélanger — ce que
+ * faisait la version précédente — laissait les dernières créatrices sans aucun
+ * dossier remonté : le CRM affichait alors l'arborescence type de l'agence au
+ * lieu de la leur, sans que rien ne signale le problème.
+ *
+ * On remonte donc TOUTES les arborescences d'abord, puis on collecte les
+ * fichiers tant qu'il reste du temps. Un dépôt qui attend le passage suivant
+ * n'a aucune conséquence ; un dossier absent, si.
+ */
 function syncDrive() {
   var started = Date.now();
   var targets = fetchTargets();
@@ -92,17 +107,81 @@ function syncDrive() {
 
   var props = PropertiesService.getScriptProperties();
   var report = [];
+  var trees = [];
 
+  // ── Passe 1 : l'arborescence de chaque créatrice ──────────────────────────
   for (var t = 0; t < targets.length; t++) {
-    // Marge : on s'arrête avant la coupure à 6 minutes d'Apps Script.
+    var target = targets[t];
+    var root = safeFolder(target.folderId);
+    if (!root) {
+      report.push(target.name + ' : dossier introuvable ou non partagé.');
+      continue;
+    }
+    var folders = listFolders(root);
+    if (folders.length === 0) {
+      report.push(target.name + ' : AUCUN sous-dossier dans le Drive.');
+      continue;
+    }
+    postFiles(target.modelId, folders, []);
+    trees.push({ target: target, root: root, folders: folders });
+  }
+
+  // ── Passe 2 : les fichiers ────────────────────────────────────────────────
+  for (var i = 0; i < trees.length; i++) {
     if (Date.now() - started > 4 * 60 * 1000) {
-      Logger.log('Temps écoulé, reprise au prochain déclenchement.');
+      report.push('Temps écoulé, ' + (trees.length - i) + ' créatrice(s) reprise(s) au prochain passage.');
       break;
     }
-    report.push(syncOneModel(targets[t], props));
+    report.push(collectForModel(trees[i], props));
   }
 
   Logger.log(report.join('\n'));
+}
+
+/** Les sous-dossiers directs du dossier racine, triés par leur numéro. */
+function listFolders(root) {
+  var folders = [];
+  var subs = root.getFolders();
+  while (subs.hasNext()) {
+    var sub = subs.next();
+    folders.push({
+      folderId: sub.getId(),
+      name: sub.getName(),
+      position: positionFromFolderName(sub.getName()),
+    });
+  }
+  folders.sort(function (a, b) {
+    return a.position - b.position;
+  });
+  return folders;
+}
+
+/**
+ * Compare l'arborescence réelle du Drive à ce que le CRM en connaît.
+ * Ne modifie rien : à lancer quand un dossier semble manquer côté CRM.
+ */
+function verifierDossiers() {
+  var targets = fetchTargets();
+  if (!targets) return;
+
+  Logger.log('Vérification de ' + targets.length + ' créatrice(s) :');
+  for (var t = 0; t < targets.length; t++) {
+    var target = targets[t];
+    var root = safeFolder(target.folderId);
+    if (!root) {
+      Logger.log(' ✗ ' + target.name + ' : DOSSIER INACCESSIBLE');
+      continue;
+    }
+    var folders = listFolders(root);
+    if (folders.length === 0) {
+      Logger.log(' ✗ ' + target.name + ' : aucun sous-dossier dans « ' + root.getName() + ' »');
+      continue;
+    }
+    var names = [];
+    for (var f = 0; f < folders.length; f++) names.push(folders[f].name);
+    Logger.log(' • ' + target.name + ' — ' + folders.length + ' dossiers : ' + names.join(' | '));
+  }
+  Logger.log('Lance syncDrive pour transmettre ces arborescences au CRM.');
 }
 
 /** Passage manuel : ignore les curseurs et reprend les 30 derniers jours. */
@@ -151,9 +230,10 @@ function safeFolder(id) {
   }
 }
 
-function syncOneModel(target, props) {
-  var root = safeFolder(target.folderId);
-  if (!root) return target.name + ' : dossier introuvable ou non partagé.';
+/** Collecte les fichiers nouveaux d'une créatrice dont l'arborescence est connue. */
+function collectForModel(tree, props) {
+  var target = tree.target;
+  var folders = tree.folders;
 
   var cursorKey = 'cursor_' + target.modelId;
   var since = props.getProperty(cursorKey);
@@ -165,31 +245,13 @@ function syncOneModel(target, props) {
   var sinceDate = new Date(since);
   sinceDate.setMinutes(sinceDate.getMinutes() - OVERLAP_MINUTES);
 
-  // On recopie l'arborescence telle quelle : le CRM n'impose aucune liste de
-  // catégories, il affiche les dossiers réels de la créatrice.
-  var folders = [];
   var found = [];
-  var subs = root.getFolders();
-  while (subs.hasNext()) {
-    var sub = subs.next();
-    folders.push({
-      folderId: sub.getId(),
-      name: sub.getName(),
-      position: positionFromFolderName(sub.getName()),
-    });
-    if (found.length < MAX_FILES_PER_RUN) {
-      collectFiles(sub, sub.getId(), sinceDate, found, 0);
-    }
+  for (var i = 0; i < folders.length && found.length < MAX_FILES_PER_RUN; i++) {
+    var sub = safeFolder(folders[i].folderId);
+    if (sub) collectFiles(sub, folders[i].folderId, sinceDate, found, 0);
   }
 
-  folders.sort(function (a, b) {
-    return a.position - b.position;
-  });
-
   if (found.length === 0) {
-    // Même sans nouveau fichier, on transmet l'arborescence : un dossier créé
-    // ou renommé doit apparaître dans le CRM sans attendre un dépôt.
-    postFiles(target.modelId, folders, []);
     return target.name + ' : rien de nouveau (' + folders.length + ' dossiers).';
   }
 
