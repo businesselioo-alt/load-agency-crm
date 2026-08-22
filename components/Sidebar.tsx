@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
-  LayoutDashboard, Users, Settings, LogOut, MessageSquare, TrendingUp, Calculator, X,
+  LayoutDashboard, Users, Settings, LogOut, MessageSquare, TrendingUp, Calculator, X, Radio,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ROLE_LABELS, ModuleKey } from '@/lib/users';
@@ -15,6 +15,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/dashboard',           label: 'Dashboard',  icon: LayoutDashboard, modules: ['dashboard'] },
+  { href: '/dashboard/direct',    label: 'Chatting direct', icon: Radio,      modules: ['dashboard'] },
   { href: '/dashboard/models',    label: 'Management', icon: Users,           modules: ['models'] },
   { href: '/dashboard/marketing', label: 'Marketing',  icon: TrendingUp,      modules: ['marketing_mym', 'marketing_of'] },
   { href: '/dashboard/chatter',   label: 'Chatting',   icon: MessageSquare,   modules: ['chatting'] },

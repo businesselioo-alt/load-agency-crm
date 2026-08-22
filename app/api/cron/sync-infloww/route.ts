@@ -181,9 +181,50 @@ async function creatorsDiagnostic() {
   });
 }
 
+/**
+ * Sonde : à quoi ressemble vraiment une transaction Infloww.
+ *
+ * Concevoir un fil de ventes en direct sans connaître les champs disponibles
+ * reviendrait à deviner. On ne saurait ni s'il existe un horodatage — sans quoi
+ * « en direct » n'a pas de sens — ni s'il existe un identifiant d'acheteur.
+ * Cette sonde ramène quelques transactions brutes, non filtrées, et rien
+ * d'autre.
+ */
+async function transactionsProbe() {
+  const { map } = await getConnectedCreators();
+  const first = [...map.values()][0];
+  if (!first) return NextResponse.json({ mode: 'sonde', error: 'aucune créatrice' });
+
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 3600 * 1000);
+  const { transactions, debug } = await getCreatorTransactionsDebug(
+    first.id, start.toISOString(), end.toISOString(), first.oid,
+  );
+
+  const keys = new Set<string>();
+  transactions.forEach((t) => Object.keys(t).forEach((k) => keys.add(k)));
+
+  return NextResponse.json({
+    mode: 'sonde',
+    creator: first.userName,
+    fenetre: { start: start.toISOString(), end: end.toISOString() },
+    status: debug.status,
+    total: transactions.length,
+    // Tous les champs rencontrés, toutes transactions confondues : certains
+    // n'apparaissent que sur certains types de vente.
+    champsRencontres: [...keys].sort(),
+    // Brut, sans filtrage ni renommage.
+    echantillon: transactions.slice(0, 5),
+  });
+}
+
 export async function GET(request: Request) {
-  if (new URL(request.url).searchParams.get('creators') === '1') {
+  const params = new URL(request.url).searchParams;
+  if (params.get('creators') === '1') {
     return creatorsDiagnostic();
+  }
+  if (params.get('transactions') === '1') {
+    return transactionsProbe();
   }
 
   const synced: string[]          = [];

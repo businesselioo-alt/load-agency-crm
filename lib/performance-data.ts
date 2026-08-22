@@ -2,13 +2,73 @@ import { supabase } from './supabase';
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
-export const OF_MODELS  = ['Lou', 'Margot', 'Jeanne', 'Lucie', 'Lorie', 'Élodie', 'Lilou'];
+/**
+ * Les créatrices OnlyFans, sous le nom de leur fiche.
+ *
+ * Cette liste servait de filtre : toute ligne dont le nom n'y figurait pas
+ * était écartée sans un mot. Elle ne contenait que sept surnoms hérités, si
+ * bien qu'une créatrice ajoutée au CRM restait invisible du dashboard sans
+ * qu'aucune erreur ne le signale.
+ *
+ * Elle n'a plus qu'un rôle d'amorce : afficher une créatrice connue même
+ * quand elle n'a encore aucune donnée. Le chargement, lui, ne jette plus rien.
+ */
+export const OF_MODELS  = [
+  'Charlotte Grace Mcknight',
+  'Emily Georgia Bourne',
+  'Isabelle Marie Martin',
+  'Kenzi Rex',
+  'Lucy Bennett',
+  'Kazia Simpson',
+  'Imogen Grace Margaret Bushby',
+  'Annie Broadbent',
+  'Katie Lynn Schafer',
+  'Lucie Jaid McConnell',
+  'Clara',
+];
 export const MYM_MODELS = [
   'Lenajns', 'Manonvpa', 'Paulineqrt', 'Julievivi', 'Aliceqsd', 'Sarahjea',
   'Eloisetms', 'Chloebleue', 'Eliseroee', 'Loujtf', 'Milavpy', 'Emmacuty',
   'Lorienmp', 'Edenlou', 'Elodie', 'Chloelpm', 'Jeannebourgot', 'Ineshrg',
   'Violettehns', 'Lounarvp', 'Naiakds', 'Coletteflm',
 ];
+
+/**
+ * Le pseudo OnlyFans de chaque créatrice, indexé par le nom de sa fiche.
+ *
+ * Les données sont stockées sous le nom civil — c'est lui qui relie le chiffre
+ * d'affaires, la facturation et l'identité Infloww. Mais à l'écran, le pseudo
+ * est ce qu'on reconnaît d'un coup d'œil. On affiche donc l'un et on continue
+ * de calculer sur l'autre.
+ *
+ * Une créatrice sans pseudo renseigné garde son nom : mieux vaut un nom civil
+ * qu'une ligne vide.
+ */
+export async function loadOfUsernames(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  try {
+    const [{ data: models }, { data: billing }] = await Promise.all([
+      supabase.from('crm_models').select('id, name'),
+      supabase.from('crm_model_billing').select('model_id, usernames'),
+    ]);
+
+    const byId = new Map<string, string>();
+    (billing ?? []).forEach((b) => {
+      const u = b.usernames as Record<string, string> | null;
+      const of = (u?.OF ?? '').trim();
+      if (of) byId.set(b.model_id as string, of);
+    });
+
+    (models ?? []).forEach((m) => {
+      const name = String(m.name ?? '').trim();
+      const of = byId.get(m.id as string);
+      if (name && of) out[name] = of;
+    });
+  } catch {
+    // Sans correspondance, l'écran retombe sur les noms de fiches.
+  }
+  return out;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,25 +105,30 @@ export async function loadPlatformData(platform: VGPlatform, models: string[]): 
   const result: PlatformData = {};
   models.forEach((m) => { result[m] = emptyModel(); });
 
+  // Une ligne dont le nom n'est pas dans la liste d'amorce est accueillie, pas
+  // jetée. C'est ce `if` manquant qui a vidé le dashboard après un renommage :
+  // les données étaient intactes en base, simplement filtrées à l'affichage, et
+  // rien ne le disait. Une créatrice inconnue de la liste vaut toujours mieux
+  // qu'un écran vide.
   (statsRes.data ?? []).forEach((row) => {
     const m = row.model_name as string;
-    if (result[m]) {
-      result[m].totalSubs = row.total_subs as number;
-      result[m].subsLast30Days = row.subs_last_30_days as number;
-    }
+    if (!m) return;
+    if (!result[m]) result[m] = emptyModel();
+    result[m].totalSubs = row.total_subs as number;
+    result[m].subsLast30Days = row.subs_last_30_days as number;
   });
 
   (entriesRes.data ?? []).forEach((row) => {
     const m = row.model_name as string;
-    if (result[m]) {
-      result[m].entries.push({
-        id: row.id as string,
-        date: row.date as string,
-        newSubs: row.new_subs as number,
-        revenue: row.revenue as number,
-        note: row.note as string,
-      });
-    }
+    if (!m) return;
+    if (!result[m]) result[m] = emptyModel();
+    result[m].entries.push({
+      id: row.id as string,
+      date: row.date as string,
+      newSubs: row.new_subs as number,
+      revenue: row.revenue as number,
+      note: row.note as string,
+    });
   });
 
   return result;

@@ -4,16 +4,12 @@ import { useState, useEffect } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { AreaChart, Area, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '@/contexts/AuthContext';
-import { MODELS, INVOICES } from '@/lib/data';
 import Link from 'next/link';
 import {
   ConsolidatedMetrics, calcConsolidated, getConsolidatedChartData,
   OF_MODELS, MYM_MODELS, loadPlatformData, ChartPoint,
+  PlatformData, calcMetrics, loadOfUsernames,
 } from '@/lib/performance-data';
-import {
-  loadRecaps, calcPlatformCA, ModelCAMetrics,
-  OF_MODELS as CHAT_OF, MYM_MODELS as CHAT_MYM,
-} from '@/lib/chatting';
 
 // ─── Interactive line chart (Recharts) ───────────────────────────────────────
 
@@ -137,35 +133,6 @@ function PlatformBlock({ label, color, gradId, metrics, chart, currencySym }: {
   );
 }
 
-// ─── Chatting CA compact card ─────────────────────────────────────────────────
-
-function ChatCACard({ label, color, metrics, currencySym }: { label: string; color: string; metrics: ModelCAMetrics; currencySym: string }) {
-  const fmt = (n: number) => n === 0 ? '—' : `${currencySym}${n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-  const cells = [
-    { l: 'Auj',     v: metrics.caToday },
-    { l: 'Hier',    v: metrics.caYesterday },
-    { l: 'Semaine', v: metrics.caWeek },
-    { l: 'Mois',    v: metrics.caMonth },
-  ];
-  return (
-    <div className="bg-[#111] rounded-2xl border border-[#222] p-4 sm:p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-        <span className="text-sm font-bold text-white">{label}</span>
-      </div>
-      {/* 2 per row on mobile, 4 on sm+ */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {cells.map((c) => (
-          <div key={c.l} className="rounded-xl bg-[#1a1a1a] p-2.5">
-            <p className="text-[9px] font-semibold text-[#555] uppercase tracking-wide mb-1">{c.l}</p>
-            <p className="text-sm font-bold text-white">{fmt(c.v)}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Empty metrics ────────────────────────────────────────────────────────────
 
 const EMPTY: ConsolidatedMetrics = {
@@ -174,35 +141,121 @@ const EMPTY: ConsolidatedMetrics = {
   totalSubs: 0, subsLast30Days: 0,
 };
 
-const EMPTY_CHAT: ModelCAMetrics = { caToday: 0, caYesterday: 0, caWeek: 0, caMonth: 0 };
+
+// ─── CA par créatrice ─────────────────────────────────────────────────────────
+
+/**
+ * Le détail que le total consolidé masque.
+ *
+ * Un chiffre d'affaires global qui stagne peut cacher une créatrice qui double
+ * et une autre qui s'effondre. Le tri se fait sur le mois en cours, décroissant :
+ * la première ligne est celle qui porte l'agence, la dernière celle qu'il faut
+ * regarder de près.
+ */
+function ModelRevenueTable({ data, usernames, currencySym }: {
+  data: PlatformData; usernames: Record<string, string>; currencySym: string;
+}) {
+  const rows = Object.entries(data)
+    .map(([name, stats]) => ({
+      name,
+      // Le pseudo si on le connaît, le nom de fiche sinon.
+      label: usernames[name] ?? name,
+      m: calcMetrics(stats.entries),
+    }))
+    .sort((a, b) => b.m.caMonth - a.m.caMonth);
+
+  const fmt = (n: number) =>
+    n === 0 ? '—' : `${currencySym}${n.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}`;
+
+  const totalMois = rows.reduce((s, r) => s + r.m.caMonth, 0);
+
+  if (rows.length === 0) {
+    return <p className="text-sm text-[#666] px-4 sm:px-6 py-6">Aucune créatrice.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm min-w-[520px]">
+        <thead>
+          <tr className="text-[10px] uppercase tracking-wider text-[#555]">
+            <th className="text-left font-semibold px-4 sm:px-6 py-2">Créatrice</th>
+            <th className="text-right font-semibold px-3 py-2">Auj</th>
+            <th className="text-right font-semibold px-3 py-2">Hier</th>
+            <th className="text-right font-semibold px-3 py-2">Semaine</th>
+            <th className="text-right font-semibold px-4 sm:px-6 py-2">Mois</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            // La part du mois : ce qui dit d'un coup d'œil si l'agence repose
+            // sur une seule créatrice.
+            const part = totalMois > 0 ? (r.m.caMonth / totalMois) * 100 : 0;
+            return (
+              <tr key={r.name} className="border-t border-[#1c1c1c] hover:bg-[#161616] transition">
+                <td className="px-4 sm:px-6 py-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-7 h-7 rounded-full bg-[#C9A84C]/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-[#C9A84C] text-xs font-bold">{r.label.charAt(0).toUpperCase()}</span>
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-white truncate">{r.label}</span>
+                      {part >= 1 && (
+                        <span className="block text-[10px] text-[#666]">{part.toFixed(0)} % du mois</span>
+                      )}
+                    </span>
+                  </div>
+                </td>
+                <td className="text-right px-3 py-2.5 tabular-nums text-white">{fmt(r.m.caToday)}</td>
+                <td className="text-right px-3 py-2.5 tabular-nums text-[#999]">{fmt(r.m.caYesterday)}</td>
+                <td className="text-right px-3 py-2.5 tabular-nums text-[#999]">{fmt(r.m.caWeek)}</td>
+                <td className="text-right px-4 sm:px-6 py-2.5 tabular-nums font-semibold text-white">{fmt(r.m.caMonth)}</td>
+              </tr>
+            );
+          })}
+          <tr className="border-t border-[#222] bg-[#0d0d0d]">
+            <td className="px-4 sm:px-6 py-2.5 text-[#888] font-semibold">Total</td>
+            <td className="text-right px-3 py-2.5 tabular-nums text-white font-semibold">
+              {fmt(rows.reduce((s, r) => s + r.m.caToday, 0))}
+            </td>
+            <td className="text-right px-3 py-2.5 tabular-nums text-[#999]">
+              {fmt(rows.reduce((s, r) => s + r.m.caYesterday, 0))}
+            </td>
+            <td className="text-right px-3 py-2.5 tabular-nums text-[#999]">
+              {fmt(rows.reduce((s, r) => s + r.m.caWeek, 0))}
+            </td>
+            <td className="text-right px-4 sm:px-6 py-2.5 tabular-nums font-bold text-white">{fmt(totalMois)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { user } = useAuth();
 
-  const recentInvoices = INVOICES.slice(0, 5);
 
   const [ofMetrics,  setOfMetrics]  = useState<ConsolidatedMetrics>(EMPTY);
   const [mymMetrics, setMymMetrics] = useState<ConsolidatedMetrics>(EMPTY);
   const [ofChart,    setOfChart]    = useState<ChartPoint[]>([]);
   const [mymChart,   setMymChart]   = useState<ChartPoint[]>([]);
-  const [chatOf,     setChatOf]     = useState<ModelCAMetrics>(EMPTY_CHAT);
-  const [chatMym,    setChatMym]    = useState<ModelCAMetrics>(EMPTY_CHAT);
+  const [ofByModel,  setOfByModel]  = useState<PlatformData>({});
+  const [ofUsernames, setOfUsernames] = useState<Record<string, string>>({});
 
   useEffect(() => {
     Promise.all([
       loadPlatformData('of',  OF_MODELS),
       loadPlatformData('mym', MYM_MODELS),
-      loadRecaps(),
-    ]).then(([ofData, mymData, recaps]) => {
+    ]).then(([ofData, mymData]) => {
       setOfMetrics(calcConsolidated(ofData));
       setMymMetrics(calcConsolidated(mymData));
+      setOfByModel(ofData);
       setOfChart(getConsolidatedChartData(ofData));
       setMymChart(getConsolidatedChartData(mymData));
-      setChatOf(calcPlatformCA(recaps, CHAT_OF,  'of'));
-      setChatMym(calcPlatformCA(recaps, CHAT_MYM, 'mym'));
     });
+    loadOfUsernames().then(setOfUsernames);
   }, []);
 
   return (
@@ -258,97 +311,23 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Chatting CA ── */}
-      <div>
-        <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-sm font-bold text-[#555] uppercase tracking-wide">CA Chatting</h2>
-          <div className="flex-1 h-px bg-[#222]" />
-          <Link href="/dashboard/chatter" className="flex items-center gap-1 text-xs font-medium text-[#C9A84C] hover:text-[#E2C06A] transition flex-shrink-0">
-            Voir détails <ArrowUpRight size={11} />
+      {/* ── CA par créatrice — OnlyFans ── */}
+      <div className="bg-[#111] rounded-2xl border border-[#222] overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-4 border-b border-[#222]">
+          <div>
+            <h2 className="font-bold text-white">CA par créatrice</h2>
+            <p className="text-xs text-[#888] mt-0.5">OnlyFans · synchronisé depuis Infloww</p>
+          </div>
+          <Link
+            href="/dashboard/marketing"
+            className="flex items-center gap-1.5 text-xs font-medium text-[#C9A84C] hover:text-[#E2C06A] transition flex-shrink-0"
+          >
+            Vue complète <ArrowUpRight size={13} />
           </Link>
         </div>
-        {/* 1 column on mobile, 2 on sm+ */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <ChatCACard label="Chatting OnlyFans" color="#a855f7" metrics={chatOf}  currencySym="$" />
-          <ChatCACard label="Chatting MYM"      color="#ec4899" metrics={chatMym} currencySym="€" />
-        </div>
+        <ModelRevenueTable data={ofByModel} usernames={ofUsernames} currencySym="$" />
       </div>
 
-      {/* ── Models + Paiements ── */}
-      {/* 1 column on mobile/tablet, 3-col grid on lg+ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Models — takes 2 of 3 cols on lg+ */}
-        <div className="lg:col-span-2 bg-[#111] rounded-2xl border border-[#222] p-4 sm:p-5">
-          <div className="flex items-center justify-between mb-4 sm:mb-5">
-            <div className="flex items-center gap-2">
-              <h2 className="font-semibold text-white">Models</h2>
-              <span className="text-xs bg-[#1a1a1a] text-[#888] px-2 py-0.5 rounded-full">
-                {MODELS.filter((m) => m.status === 'active').length} actives
-              </span>
-            </div>
-            <Link href="/dashboard/models" className="flex items-center gap-1.5 text-sm text-[#C9A84C] hover:text-[#E2C06A] font-medium transition flex-shrink-0">
-              Voir tout <ArrowUpRight size={14} />
-            </Link>
-          </div>
-          <div className="space-y-1">
-            {MODELS.map((model) => (
-              <div key={model.id} className="flex items-center gap-3 px-2 sm:px-3 py-2.5 rounded-xl hover:bg-[#1a1a1a] transition">
-                <div className="w-8 h-8 rounded-full bg-[#C9A84C]/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-[#C9A84C] text-sm font-bold">{model.name.charAt(0)}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{model.name}</p>
-                  <p className="text-xs text-[#888] truncate">{model.pseudo} · {model.manager}</p>
-                </div>
-                {/* Platform badges — hidden on very small screens to prevent overflow */}
-                <div className="hidden sm:flex gap-1 flex-shrink-0">
-                  {model.platforms.map((p) => (
-                    <span key={p} className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      p === 'MYM' ? 'bg-pink-500/10 text-pink-400' :
-                      p === 'OF'  ? 'bg-purple-500/10 text-purple-400' :
-                      'bg-emerald-500/10 text-emerald-400'
-                    }`}>{p}</span>
-                  ))}
-                </div>
-                <span className="flex items-center gap-1 text-xs text-green-400 bg-green-500/10 px-2 py-1 rounded-full flex-shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                  Actif
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Derniers paiements */}
-        <div className="bg-[#111] rounded-2xl border border-[#222] p-4 sm:p-5">
-          <div className="flex items-center justify-between mb-4 sm:mb-5">
-            <h2 className="font-semibold text-white">Derniers paiements</h2>
-            <Link href="/dashboard/invoices" className="text-sm text-[#C9A84C] hover:text-[#E2C06A] font-medium transition flex-shrink-0">
-              Voir tout
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {recentInvoices.map((inv) => {
-              const model = MODELS.find((m) => m.id === inv.modelId);
-              const sym   = inv.currency === 'EUR' ? '€' : inv.currency === 'GBP' ? '£' : '$';
-              return (
-                <div key={inv.id} className="flex items-center justify-between py-1.5">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-full bg-[#C9A84C]/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-[#C9A84C] text-xs font-bold">{model?.name.charAt(0)}</span>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-white truncate">{model?.name}</p>
-                      <p className="text-xs text-[#888]">{inv.platform}</p>
-                    </div>
-                  </div>
-                  <span className="text-sm font-semibold text-white flex-shrink-0 ml-2">{sym}{inv.amount.toLocaleString('fr-FR')}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
