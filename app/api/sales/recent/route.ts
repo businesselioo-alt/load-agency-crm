@@ -99,27 +99,61 @@ export async function GET(request: Request) {
     const startISO = start.toISOString();
     const endISO = end.toISOString();
 
-    // Toutes les créatrices en parallèle : en série, onze appels enchaînés
-    // dépasseraient le temps d'exécution accordé à la route.
-    const perCreator = await Promise.all(
-      [...map.values()].map(async (ref) => {
-        try {
-          const { transactions } = await getCreatorTransactionsDebug(
-            ref.id, startISO, endISO, ref.oid,
-          );
-          return { ref, transactions, erreur: null as string | null };
-        } catch (e) {
-          return { ref, transactions: [] as InflowwTransaction[], erreur: String(e) };
+    /**
+     * Par petits groupes, jamais toutes d'un coup.
+     *
+     * Onze appels simultanés font répondre 429 à Infloww, et l'erreur était
+     * avalée plus bas : la créatrice refusée renvoyait une liste vide, donc
+     * elle disparaissait du fil sans que rien ne le dise. Trois à la fois
+     * passent, et un refus est désormais réessayé puis signalé.
+     */
+    const LOT = 3;
+    const refs = [...map.values()];
+    const perCreator: {
+      ref: typeof refs[number];
+      transactions: InflowwTransaction[];
+      erreur: string | null;
+    }[] = [];
+
+    const unAppel = async (ref: typeof refs[number], essai = 1): Promise<typeof perCreator[number]> => {
+      try {
+        const { transactions, debug } = await getCreatorTransactionsDebug(
+          ref.id, startISO, endISO, ref.oid,
+        );
+        if (debug.httpErrorBody !== null) {
+          // 429 et 5xx sont passagers : un second essai suffit presque toujours.
+          if (essai === 1 && (debug.status === 429 || debug.status >= 500)) {
+            await new Promise((r) => setTimeout(r, 1200));
+            return unAppel(ref, 2);
+          }
+          return {
+            ref, transactions,
+            erreur: `${ref.userName} : HTTP ${debug.status} — ${debug.httpErrorBody.slice(0, 120)}`,
+          };
         }
-      }),
-    );
+        return { ref, transactions, erreur: null };
+      } catch (e) {
+        return { ref, transactions: [], erreur: `${ref.userName} : ${String(e)}` };
+      }
+    };
+
+    for (let i = 0; i < refs.length; i += LOT) {
+      const lot = await Promise.all(refs.slice(i, i + LOT).map((r) => unAppel(r)));
+      perCreator.push(...lot);
+    }
 
     const sales: Sale[] = [];
     const erreurs: string[] = [];
     let echantillonBrut: unknown = null;
 
+    // Combien chaque créatrice a réellement rapporté de lignes : un zéro ici
+    // distingue « aucune vente » de « appel refusé », ce que le fil seul ne
+    // permet pas de voir.
+    const parCreatrice: Record<string, number> = {};
+
     perCreator.forEach(({ ref, transactions, erreur }) => {
-      if (erreur) erreurs.push(`${ref.userName} : ${erreur}`);
+      if (erreur) erreurs.push(erreur);
+      parCreatrice[ref.userName] = transactions.length;
       transactions.forEach((t, i) => {
         const raw = t as Record<string, unknown>;
         if (!echantillonBrut) echantillonBrut = raw;
@@ -149,6 +183,7 @@ export async function GET(request: Request) {
       total: sales.length,
       creators: [...map.values()].map((r) => r.userName).sort(),
       fenetre: { start: startISO, end: endISO, heures: hours },
+      parCreatrice,
       erreurs,
       // Le premier objet brut rencontré : il révèle les champs réellement
       // renvoyés, y compris ceux que la liste ci-dessus ne prévoit pas.
