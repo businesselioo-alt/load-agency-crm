@@ -95,7 +95,61 @@ interface ModelDebug {
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
-export async function GET() {
+/**
+ * Diagnostic seul : qui Infloww renvoie, et qui le CRM réclame.
+ *
+ * La synchronisation complète relit tout le mois pour chaque créatrice — plus
+ * d'une minute, donc illisible quand on cherche simplement pourquoi un compte
+ * manque. Ce mode ne fait qu'un appel et n'écrit rien.
+ */
+async function creatorsDiagnostic() {
+  const { map, byPid, debug } = await getConnectedCreators();
+  const { mapping, missingUsername, fromDatabase } = await buildInflowwMapping(supabase);
+  const identities = await loadIdentities(supabase);
+
+  const requested = new Set(Object.values(mapping).map((u) => u.toLowerCase()));
+  const claimedPids = new Set([...identities.values()].map((i) => i.platformPid));
+
+  return NextResponse.json({
+    mode: 'diagnostic',
+    creatorsFound: map.size,
+    apiErrors: debug.apiErrors,
+    tagCounts: debug.tagCounts,
+    oidErrors: debug.oidErrors,
+    byOid: debug.byOid,
+    // Ce que l'API renvoie réellement, identifiant stable compris.
+    inflowwAccounts: [...map.values()].map((r) => ({
+      userName: r.userName,
+      platformPid: r.platformPid,
+      creatorId: r.id,
+    })),
+    // Ce que le CRM cherche, et si une identité stable est déjà mémorisée.
+    crmExpects: Object.entries(mapping).map(([model, userName]) => {
+      const known = identities.get(model);
+      return {
+        model,
+        userName,
+        knownPid: known?.platformPid ?? null,
+        resolvedBy: known && byPid.has(known.platformPid)
+          ? 'platformPid'
+          : map.has(userName)
+            ? 'userName'
+            : 'INTROUVABLE',
+      };
+    }),
+    unmatchedInflowwAccounts: [...map.entries()]
+      .filter(([u, r]) => !requested.has(u.toLowerCase()) && !claimedPids.has(r.platformPid))
+      .map(([u]) => u),
+    missingUsername,
+    fromDatabase,
+  });
+}
+
+export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.get('creators') === '1') {
+    return creatorsDiagnostic();
+  }
+
   const synced: string[]          = [];
   const errors: string[]          = [];
   const debugModels: ModelDebug[] = [];
