@@ -6,8 +6,10 @@ import {
   getCreatorTransactionsDebug,
   sumTransactions,
   getCreatorRefunds,
+  inflowwOids,
   type SumDebug,
 } from '@/lib/infloww';
+import { ensureModelsFromInfloww } from '@/lib/infloww-sync-models';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -132,7 +134,16 @@ export async function GET() {
     console.log('[sync] already synced this month:', alreadySynced.size, 'entries');
 
     // ── 1. Resolve creators ────────────────────────────────────────────────
-    const { map: creatorsMap, debug: creatorsDebug } = await getConnectedCreators();
+    const { map: creatorsMap, raw: creatorsRaw, debug: creatorsDebug } = await getConnectedCreators();
+
+    // Toute créatrice Infloww sans fiche CRM en obtient une, identifiée par son
+    // username OnlyFans. C'est ce qui fait qu'ajouter une créatrice dans
+    // Infloww suffit : elle apparaît dans le CRM au passage suivant.
+    const modelsSync = await ensureModelsFromInfloww(supabase, creatorsMap, creatorsRaw);
+    if (modelsSync.created.length > 0) {
+      console.log('[sync] fiches créées :', JSON.stringify(modelsSync.created));
+    }
+    modelsSync.errors.forEach((e) => errors.push(`création fiche — ${e}`));
 
     // Le mapping vient des fiches modèles, plus les sept clés historiques.
     // Ajouter une créatrice au dashboard = renseigner son username OF dans le
@@ -153,8 +164,10 @@ export async function GET() {
 
     // ── 2. Per-model sync ──────────────────────────────────────────────────
     for (const [modelName, userName] of Object.entries(mapping)) {
-      const creatorId = creatorsMap.get(userName) ?? null;
-      console.log(`[sync] ${modelName} (${userName}) → creatorId: ${creatorId}`);
+      const creator = creatorsMap.get(userName) ?? null;
+      const creatorId = creator?.id ?? null;
+      const creatorOid = creator?.oid;
+      console.log(`[sync] ${modelName} (${userName}) → creatorId: ${creatorId} (pôle ${creatorOid ?? '—'})`);
 
       const modelDebug: ModelDebug = { model: modelName, userName, creatorId, dates: [] };
 
@@ -184,7 +197,7 @@ export async function GET() {
 
         try {
           const { transactions, debug: txDebug } = await getCreatorTransactionsDebug(
-            creatorId, startTime, endTime,
+            creatorId, startTime, endTime, creatorOid,
           );
 
           dateDebug.transactionCount    = txDebug.totalCount;
@@ -209,7 +222,7 @@ export async function GET() {
           totals[date] = (totals[date] ?? 0) + revenue;
 
           // Fetch refunds for this model/date (informational — not subtracted from revenue)
-          const refunds = await getCreatorRefunds(creatorId, startTime, endTime);
+          const refunds = await getCreatorRefunds(creatorId, startTime, endTime, creatorOid);
           dateDebug.refundTotal = refunds.total;
           dateDebug.refundCount = refunds.count;
           if (refunds.count > 0) {
@@ -270,9 +283,11 @@ export async function GET() {
     if (louId) {
       const wideStart = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
       const wideEnd   = new Date().toISOString();
-      const { debug: wideDbg } = await getCreatorTransactionsDebug(louId, wideStart, wideEnd);
+      const { debug: wideDbg } = await getCreatorTransactionsDebug(
+        louId.id, wideStart, wideEnd, louId.oid,
+      );
       wideWindowTest = {
-        creatorId: louId, wideStart, wideEnd,
+        creatorId: louId.id, wideStart, wideEnd,
         totalCount: wideDbg.totalCount,
         status: wideDbg.status,
         httpErrorBody: wideDbg.httpErrorBody,
@@ -297,7 +312,7 @@ export async function GET() {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
       const nowISO2      = new Date().toISOString();
       const { transactions: allTxns7d, debug: investDbg } =
-        await getCreatorTransactionsDebug(investId, sevenDaysAgo, nowISO2);
+        await getCreatorTransactionsDebug(investId.id, sevenDaysAgo, nowISO2, investId.oid);
 
       // Bucket every transaction: type → { total, zeroAmount, nonZero, samples }
       const byType: Record<string, {
@@ -375,6 +390,20 @@ export async function GET() {
       debug: {
         // Diagnostic du mapping — à regarder en premier quand une créatrice
         // manque au dashboard.
+        // Pôles Infloww — le premier bloc à regarder quand des créatrices
+        // manquent : byOid dit combien chaque pôle a remonté.
+        // Fiches créées automatiquement à ce passage.
+        modelsSync,
+        poles: {
+          configured: inflowwOids().length,
+          // Une clé « __sans_pole__ » ici signifie que l'API accepte d'être
+          // interrogée sans en-tête de pôle, et combien de créatrices elle
+          // renvoie alors en plus.
+          byOid: creatorsDebug.byOid,
+          errors: creatorsDebug.oidErrors,
+          duplicates: creatorsDebug.duplicates,
+          totalCreators: creatorsDebug.totalFound,
+        },
         mapping: {
           total: Object.keys(mapping).length,
           fromDatabase,

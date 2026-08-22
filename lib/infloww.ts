@@ -40,18 +40,58 @@ const NEW_SUB_TYPES = new Set(['subscribe', 'subscription', 'new_subscription', 
 // Type values (lowercased) that are renewals — never count as new
 const RENEWAL_TYPES = new Set(['rebill', 'renewal', 'renewed', 'renewedsubscription', 'recurring', 'resubscribe']);
 
-function inflowwHeaders(): Record<string, string> {
-  return {
+/**
+ * Les pôles configurés.
+ *
+ * L'en-tête `x-oid` désigne une organisation Infloww — un pôle. Une seule
+ * valeur ne montre qu'un pôle, et les créatrices des autres restent invisibles
+ * sans qu'aucune erreur ne le signale : l'API répond 200 avec une liste courte.
+ *
+ * INFLOWW_OID accepte donc plusieurs identifiants séparés par des virgules.
+ * Une valeur unique continue de fonctionner à l'identique.
+ */
+export function inflowwOids(): string[] {
+  return (process.env.INFLOWW_OID ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Tentative « sans pôle » : on interroge l'API en omettant complètement
+ * l'en-tête x-oid, pour voir si elle renvoie alors les créatrices qui
+ * n'appartiennent à aucun pôle. On ne sait pas si l'API l'accepte — c'est
+ * précisément ce que ce passage sert à déterminer, sans rien casser : si elle
+ * refuse, l'erreur est consignée et les autres pôles remontent quand même.
+ */
+export const SANS_POLE = '__sans_pole__';
+
+function inflowwHeaders(oid?: string): Record<string, string> {
+  const base: Record<string, string> = {
     Authorization: process.env.INFLOWW_API_KEY ?? '',
-    'x-oid': process.env.INFLOWW_OID ?? '',
     'Content-Type': 'application/json',
   };
+  if (oid === SANS_POLE) return base;
+  base['x-oid'] = oid ?? inflowwOids()[0] ?? '';
+  return base;
 }
 
 // ─── Creators ────────────────────────────────────────────────────────────────
 
+/** Une créatrice et le pôle dans lequel elle a été trouvée. */
+export interface CreatorRef {
+  id: number;
+  oid: string;
+}
+
 export interface CreatorsDebug {
   totalFound: number;
+  /** Nombre de créatrices remontées par pôle — le premier chiffre à regarder. */
+  byOid: Record<string, number>;
+  /** Pôles dont l'appel a échoué, avec le motif. */
+  oidErrors: Record<string, string>;
+  /** Usernames vus dans plusieurs pôles : le premier rencontré l'emporte. */
+  duplicates: string[];
   rawFirstPageKeys: string[];
   rawFirstPageDataKeys: string[];
   listPath: string;
@@ -63,14 +103,38 @@ export interface CreatorsDebug {
   rawLouValmontFull: unknown;
 }
 
-export async function getConnectedCreators(): Promise<{ map: Map<string, number>; debug: CreatorsDebug }> {
-  const map = new Map<string, number>();
-  let cursor: string | undefined;
+export async function getConnectedCreators(): Promise<{
+  map: Map<string, CreatorRef>;
+  /** L'objet brut de chaque créatrice, pour en dériver un nom lisible. */
+  raw: Map<string, Record<string, unknown>>;
+  debug: CreatorsDebug;
+}> {
+  const map = new Map<string, CreatorRef>();
+  const raw = new Map<string, Record<string, unknown>>();
   let firstPageRaw: Record<string, unknown> | null = null;
   let listPath = 'unknown';
   let sampleCreatorKeys: string[] = [];
   let rawLouValmontFull: unknown = null;
   let rawFirstCreatorFull: unknown = null; // fallback if louvalmont not found
+
+  const byOid: Record<string, number> = {};
+  const oidErrors: Record<string, string> = {};
+  const duplicates: string[] = [];
+
+  const configured = inflowwOids();
+  if (configured.length === 0) {
+    console.log('[infloww] AUCUN pôle configuré — INFLOWW_OID est vide.');
+  }
+
+  // Chaque pôle, puis un passage sans en-tête de pôle pour ratisser les
+  // créatrices qui n'en ont pas. L'ordre compte : les pôles d'abord, pour que
+  // byOid attribue chaque créatrice à son pôle réel plutôt qu'au fourre-tout.
+  const attempts = [...configured, SANS_POLE];
+
+  // Un pôle à la fois : l'API n'accepte qu'un x-oid par requête.
+  for (const oid of attempts) {
+  let cursor: string | undefined;
+  byOid[oid] = 0;
 
   try {
     do {
@@ -79,10 +143,12 @@ export async function getConnectedCreators(): Promise<{ map: Map<string, number>
       const url = `${BASE}/creators?${params}`;
       console.log('[infloww] GET', url);
 
-      const res = await fetch(url, { headers: inflowwHeaders(), cache: 'no-store' });
-      console.log('[infloww] creators status:', res.status);
+      const res = await fetch(url, { headers: inflowwHeaders(oid), cache: 'no-store' });
+      console.log('[infloww] creators status:', res.status, '| oid:', oid);
       if (!res.ok) {
-        console.log('[infloww] creators error body:', await res.text());
+        const body = await res.text();
+        console.log('[infloww] creators error body:', body);
+        oidErrors[oid] = `HTTP ${res.status} — ${body.slice(0, 200)}`;
         break;
       }
 
@@ -107,17 +173,26 @@ export async function getConnectedCreators(): Promise<{ map: Map<string, number>
       }
 
       for (const c of list) {
-        const raw = c as Record<string, unknown>;
-        const id   = raw.id ?? raw.creatorId ?? raw.creator_id;
-        const name = raw.userName ?? raw.username ?? raw.user_name ?? raw.name;
+        const raw2 = c as Record<string, unknown>;
+        const id   = raw2.id ?? raw2.creatorId ?? raw2.creator_id;
+        const name = raw2.userName ?? raw2.username ?? raw2.user_name ?? raw2.name;
         if (name && id) {
-          map.set(String(name), Number(id));
+          const key = String(name);
+          // Une créatrice présente dans deux pôles ne doit être comptée qu'une
+          // fois : la synchroniser deux fois doublerait son chiffre d'affaires.
+          if (map.has(key)) {
+            if (!duplicates.includes(key)) duplicates.push(key);
+            continue;
+          }
+          map.set(key, { id: Number(id), oid });
+          raw.set(key, raw2);
+          byOid[oid] += 1;
           // Capture the full unfiltered object — we're looking for undocumented
           // subscriber-count fields (subscriberCount, totalFans, activeSubscribers…)
-          if (!rawFirstCreatorFull) rawFirstCreatorFull = raw;
+          if (!rawFirstCreatorFull) rawFirstCreatorFull = raw2;
           if (String(name) === 'louvalmont') {
-            rawLouValmontFull = raw;
-            console.log('[infloww] louvalmont FULL raw object:', JSON.stringify(raw));
+            rawLouValmontFull = raw2;
+            console.log('[infloww] louvalmont FULL raw object:', JSON.stringify(raw2));
           }
         }
       }
@@ -128,14 +203,20 @@ export async function getConnectedCreators(): Promise<{ map: Map<string, number>
     } while (cursor);
   } catch (e) {
     console.log('[infloww] getConnectedCreators exception:', e);
+    oidErrors[oid] = String(e);
+  }
   }
 
   console.log('[infloww] creatorsMap size:', map.size, '| userNames:', [...map.keys()]);
 
   return {
     map,
+    raw,
     debug: {
       totalFound: map.size,
+      byOid,
+      oidErrors,
+      duplicates,
       rawFirstPageKeys: firstPageRaw ? Object.keys(firstPageRaw) : [],
       rawFirstPageDataKeys:
         firstPageRaw?.data && typeof firstPageRaw.data === 'object' && !Array.isArray(firstPageRaw.data)
@@ -170,6 +251,7 @@ export async function getCreatorTransactionsDebug(
   creatorId: number,
   startTime: string,
   endTime: string,
+  oid?: string,
 ): Promise<{ transactions: InflowwTransaction[]; debug: TransactionsDebug }> {
   const all: InflowwTransaction[] = [];
   let cursor: string | undefined;
@@ -194,7 +276,7 @@ export async function getCreatorTransactionsDebug(
       if (!firstUrl) firstUrl = url;
       console.log('[infloww] GET', url);
 
-      const res = await fetch(url, { headers: inflowwHeaders(), cache: 'no-store' });
+      const res = await fetch(url, { headers: inflowwHeaders(oid), cache: 'no-store' });
       if (!firstStatus) firstStatus = res.status;
       console.log('[infloww] transactions status:', res.status);
 
@@ -406,6 +488,7 @@ export async function getCreatorRefunds(
   creatorId: number,
   startTime: string,
   endTime: string,
+  oid?: string,
 ): Promise<{ total: number; count: number; rawFirst: unknown }> {
   const all: Record<string, unknown>[] = [];
   let cursor: string | undefined;
@@ -423,7 +506,7 @@ export async function getCreatorRefunds(
       const url = `${BASE}/refunds?${params}`;
       console.log('[infloww] GET', url);
 
-      const res = await fetch(url, { headers: inflowwHeaders(), cache: 'no-store' });
+      const res = await fetch(url, { headers: inflowwHeaders(oid), cache: 'no-store' });
       console.log('[infloww] refunds status:', res.status);
       if (!res.ok) { console.log('[infloww] refunds error:', await res.text()); break; }
 

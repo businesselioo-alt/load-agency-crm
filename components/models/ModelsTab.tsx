@@ -142,7 +142,9 @@ export default function ModelsTab() {
     }
 
     const index = models.findIndex((m) => m.id === draft.id);
-    const res = await saveModel(nextModel, index < 0 ? models.length : index);
+    // Le nom d'avant : s'il change, l'historique du dashboard suit.
+    const previousName = models.find((m) => m.id === draft.id)?.name;
+    const res = await saveModel(nextModel, index < 0 ? models.length : index, previousName);
     if (!res.ok) {
       setBusy(false);
       setError(res.error ?? "Échec de l'enregistrement de la fiche.");

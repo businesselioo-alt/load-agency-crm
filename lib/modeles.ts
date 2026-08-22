@@ -111,7 +111,20 @@ export async function seedModels(models: Model[]): Promise<SaveResult> {
   }
 }
 
-export async function saveModel(m: Model, sortOrder: number): Promise<SaveResult> {
+/**
+ * Enregistre une fiche.
+ *
+ * `previousName` sert au renommage : le chiffre d'affaires quotidien est stocké
+ * dans `vg_daily_entries` sous le NOM de la créatrice, pas son identifiant.
+ * Renommer une fiche sans toucher à l'historique le rendrait orphelin — le
+ * dashboard afficherait un trou sous le nouveau nom et des données fantômes
+ * sous l'ancien. On renomme donc les deux d'un seul geste.
+ */
+export async function saveModel(
+  m: Model,
+  sortOrder: number,
+  previousName?: string,
+): Promise<SaveResult> {
   if (!m.name.trim()) return { ok: false, error: 'Le nom est obligatoire.' };
   try {
     const { data, error } = await supabase
@@ -122,6 +135,15 @@ export async function saveModel(m: Model, sortOrder: number): Promise<SaveResult
     if (!data || data.length === 0) {
       return { ok: false, error: 'Aucune ligne écrite — vérifie les policies RLS de crm_models.' };
     }
+
+    const before = (previousName ?? '').trim();
+    if (before && before !== m.name.trim()) {
+      await supabase
+        .from('vg_daily_entries')
+        .update({ model_name: m.name.trim() })
+        .eq('model_name', before);
+    }
+
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Erreur réseau' };
