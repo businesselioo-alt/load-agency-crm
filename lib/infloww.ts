@@ -86,6 +86,16 @@ export interface CreatorRef {
 
 export interface CreatorsDebug {
   totalFound: number;
+  /**
+   * Le tableau `errors` que l'API place à la racine de sa réponse.
+   *
+   * Le code l'ignorait : la réponse est HTTP 200, la liste est courte, et la
+   * raison de la coupure est écrite juste à côté sans que personne ne la lise.
+   * C'est le premier endroit à regarder quand des créatrices manquent.
+   */
+  apiErrors: unknown[];
+  /** Les pôles rencontrés (champ `tagName`) et leur effectif. */
+  tagCounts: Record<string, number>;
   /** Nombre de créatrices remontées par pôle — le premier chiffre à regarder. */
   byOid: Record<string, number>;
   /** Pôles dont l'appel a échoué, avec le motif. */
@@ -120,6 +130,8 @@ export async function getConnectedCreators(): Promise<{
   const byOid: Record<string, number> = {};
   const oidErrors: Record<string, string> = {};
   const duplicates: string[] = [];
+  const apiErrors: unknown[] = [];
+  const tagCounts: Record<string, number> = {};
 
   const configured = inflowwOids();
   if (configured.length === 0) {
@@ -156,6 +168,12 @@ export async function getConnectedCreators(): Promise<{
       if (!firstPageRaw) firstPageRaw = json;
       console.log('[infloww] creators raw top-level keys:', Object.keys(json));
 
+      // L'API répond 200 même quand elle écarte des comptes ; le motif est ici.
+      if (Array.isArray(json.errors) && json.errors.length > 0) {
+        console.log('[infloww] creators API errors:', JSON.stringify(json.errors));
+        apiErrors.push(...json.errors);
+      }
+
       const d = json.data as Record<string, unknown> | undefined;
       let list: InflowwCreator[] = [];
       if (Array.isArray(d?.list))          { list = d!.list as InflowwCreator[];          listPath = 'data.list'; }
@@ -187,6 +205,12 @@ export async function getConnectedCreators(): Promise<{
           map.set(key, { id: Number(id), oid });
           raw.set(key, raw2);
           byOid[oid] += 1;
+          // Le pôle est un libellé porté par la créatrice (`tagName`), pas une
+          // organisation distincte : compter les libellés dit si l'API renvoie
+          // bien tous les pôles d'un coup — auquel cas le pôle n'est pour rien
+          // dans les créatrices manquantes.
+          const tag = String(raw2.tagName ?? raw2.tag_name ?? '(sans pôle)');
+          tagCounts[tag] = (tagCounts[tag] ?? 0) + 1;
           // Capture the full unfiltered object — we're looking for undocumented
           // subscriber-count fields (subscriberCount, totalFans, activeSubscribers…)
           if (!rawFirstCreatorFull) rawFirstCreatorFull = raw2;
@@ -214,6 +238,8 @@ export async function getConnectedCreators(): Promise<{
     raw,
     debug: {
       totalFound: map.size,
+      apiErrors,
+      tagCounts,
       byOid,
       oidErrors,
       duplicates,
