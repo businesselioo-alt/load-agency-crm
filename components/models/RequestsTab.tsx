@@ -6,9 +6,10 @@ import { Model } from '@/lib/data';
 import { useAuth } from '@/contexts/AuthContext';
 import { safeLoadModels } from '@/lib/compta';
 import {
-  CATEGORIES, CATEGORY_BY_KEY, ContentCategory, ContentEntry, ContentRequest,
+  ContentEntry, ContentRequest, FolderDef, ModelFolder,
   EffectiveStatus, REQUEST_STATUS_LABELS, REQUEST_STATUS_STYLES, RequestPriority,
-  createRequests, deleteRequest, formatDay, loadEntries, loadRequests, progressOf, updateRequest,
+  createRequests, defByKey, deleteRequest, foldersFor, formatDay,
+  loadEntries, loadFolders, loadRequests, progressOf, updateRequest,
 } from '@/lib/contenu';
 import { Banner, EmptyState, GoldButton, GhostButton, NumberInput, TextArea, TextInput } from '@/components/compta/ui';
 
@@ -23,12 +24,17 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 const emptyForm = {
   modelIds: [] as string[],
-  category: 'scripts' as ContentCategory,
+  /** Rang du dossier visé. 0 = demande personnalisée. */
+  folderPosition: 1,
+  customLabel: '',
   quantity: 1,
   brief: '',
   dueAt: '',
   priority: 'normale' as RequestPriority,
 };
+
+/** Valeur du sélecteur pour « hors dossier ». */
+const CUSTOM_OPTION = 'custom';
 
 /**
  * Demandes de contenu — vue agence.
@@ -43,6 +49,7 @@ export default function RequestsTab() {
   const [models, setModels] = useState<Model[]>([]);
   const [requests, setRequests] = useState<ContentRequest[]>([]);
   const [entries, setEntries] = useState<ContentEntry[]>([]);
+  const [folders, setFolders] = useState<ModelFolder[]>([]);
   const [filter, setFilter] = useState<Filter>('actives');
   const [form, setForm] = useState(emptyForm);
   const [creating, setCreating] = useState(false);
@@ -53,15 +60,36 @@ export default function RequestsTab() {
 
   useEffect(() => {
     (async () => {
-      const [m, r, e] = await Promise.all([safeLoadModels(), loadRequests(), loadEntries()]);
+      const [m, r, e, f] = await Promise.all([
+        safeLoadModels(),
+        loadRequests(),
+        loadEntries(),
+        loadFolders(),
+      ]);
       setModels(m);
       setRequests(r);
       setEntries(e);
+      setFolders(f);
       setLoading(false);
     })();
   }, []);
 
   const nameOf = (id: string) => models.find((m) => m.id === id)?.name ?? id;
+  const foldersOf = (modelId: string) => foldersFor(modelId, folders, entries);
+
+  /**
+   * Les dossiers proposés dans le formulaire.
+   *
+   * Une demande groupée vise « le dossier 4 » chez chacune : on affiche donc
+   * l'arborescence de la première créatrice cochée, et la position sert de
+   * correspondance chez les autres. Sans sélection, on montre l'arborescence
+   * type de l'agence.
+   */
+  const formFolders: FolderDef[] = useMemo(() => {
+    const ref = form.modelIds[0];
+    return foldersOf(ref ?? '').filter((f) => f.position < 900);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.modelIds, folders, entries]);
 
   const rows = useMemo(
     () =>
@@ -98,7 +126,17 @@ export default function RequestsTab() {
     setBusy(true);
     setError(null);
     setFeedback(null);
-    const res = await createRequests({ ...form, createdBy: user?.name ?? '' });
+    const res = await createRequests({
+      modelIds: form.modelIds,
+      folderPosition: form.folderPosition,
+      customLabel: form.customLabel,
+      folders,
+      quantity: form.quantity,
+      brief: form.brief,
+      dueAt: form.dueAt,
+      priority: form.priority,
+      createdBy: user?.name ?? '',
+    });
     setBusy(false);
     if (!res.ok) {
       setError(res.error);
@@ -216,19 +254,25 @@ export default function RequestsTab() {
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-medium text-[#888] mb-1.5">Catégorie</label>
+              <label className="block text-xs font-medium text-[#888] mb-1.5">Dossier</label>
               <select
-                value={form.category}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, category: e.target.value as ContentCategory }))
-                }
+                value={form.customLabel ? CUSTOM_OPTION : String(form.folderPosition)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setForm((f) =>
+                    v === CUSTOM_OPTION
+                      ? { ...f, folderPosition: 0, customLabel: f.customLabel || ' ' }
+                      : { ...f, folderPosition: Number(v), customLabel: '' },
+                  );
+                }}
                 className="w-full px-3 py-2.5 bg-[#0f0f0f] border border-[#222] rounded-xl text-sm text-white outline-none focus:border-[#C9A84C]/60 cursor-pointer"
               >
-                {CATEGORIES.map((c) => (
-                  <option key={c.key} value={c.key}>
+                {formFolders.map((c) => (
+                  <option key={c.key} value={c.position}>
                     {c.label}
                   </option>
                 ))}
+                <option value={CUSTOM_OPTION}>✎ Demande personnalisée…</option>
               </select>
             </div>
             <div>
@@ -263,6 +307,24 @@ export default function RequestsTab() {
             </div>
           </div>
 
+          {form.customLabel !== '' && (
+            <div>
+              <label className="block text-xs font-medium text-[#888] mb-1.5">
+                Intitulé de la demande personnalisée
+              </label>
+              <TextInput
+                autoFocus
+                value={form.customLabel.trim()}
+                onChange={(e) => setForm((f) => ({ ...f, customLabel: e.target.value || ' ' }))}
+                placeholder="Ex : Vidéo anniversaire abonnés, Shooting Halloween, Duo avec Kiara…"
+              />
+              <p className="text-[10px] text-[#555] mt-1">
+                Cette demande ne vise aucun dossier du Drive. Les livraisons apparaîtront dans
+                « Demandes personnalisées » sur la fiche de la créatrice.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-[#888] mb-1.5">
               Brief — ce que tu attends précisément
@@ -284,7 +346,10 @@ export default function RequestsTab() {
             >
               Annuler
             </GhostButton>
-            <GoldButton onClick={submit} disabled={busy || form.modelIds.length === 0}>
+            <GoldButton
+              onClick={submit}
+              disabled={busy || form.modelIds.length === 0 || form.customLabel.trim() === '' && form.folderPosition <= 0}
+            >
               <Send size={15} />
               {busy ? 'Envoi...' : `Envoyer${form.modelIds.length > 1 ? ` à ${form.modelIds.length}` : ''}`}
             </GoldButton>
@@ -307,6 +372,7 @@ export default function RequestsTab() {
               key={p.request.id}
               progress={p}
               modelName={nameOf(p.request.modelId)}
+              folders={foldersOf(p.request.modelId)}
               busy={busy}
               onClose={() => patch(p.request, { status: 'close' })}
               onReopen={() => patch(p.request, { status: 'ouverte' })}
@@ -323,6 +389,7 @@ export default function RequestsTab() {
 function RequestRow({
   progress,
   modelName,
+  folders,
   busy,
   onClose,
   onReopen,
@@ -331,6 +398,7 @@ function RequestRow({
 }: {
   progress: ReturnType<typeof progressOf>;
   modelName: string;
+  folders: FolderDef[];
   busy: boolean;
   onClose: () => void;
   onReopen: () => void;
@@ -339,7 +407,9 @@ function RequestRow({
 }) {
   const { request: r, delivered, percent, effective, daysLeft } = progress;
   const st = REQUEST_STATUS_STYLES[effective as EffectiveStatus];
-  const cat = CATEGORY_BY_KEY[r.category];
+  const def = defByKey(folders, r.category);
+  const title = r.customLabel || def.label;
+  const unit = r.customLabel ? 'livraison' : def.unit.toLowerCase();
   const [open, setOpen] = useState(false);
 
   return (
@@ -347,7 +417,10 @@ function RequestRow({
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-40 flex-shrink-0">
           <p className="text-sm text-white truncate">{modelName}</p>
-          <p className="text-[10px] text-[#555]">{cat?.label ?? r.category}</p>
+          <p className="text-[10px] text-[#555]">
+            {title}
+            {r.customLabel && <span className="ml-1 text-[#C9A84C]">·  perso</span>}
+          </p>
         </div>
 
         <div className="w-48 flex-shrink-0">
@@ -455,7 +528,7 @@ function RequestRow({
       {effective === 'en_retard' && (
         <p className="mt-2 flex items-center gap-1.5 text-[11px] text-red-300/80">
           <AlertTriangle size={12} />
-          Échéance dépassée, il manque {r.quantity - delivered} {cat?.unit ?? 'contenu'}
+          Échéance dépassée, il manque {r.quantity - delivered} {unit}
           {r.quantity - delivered > 1 ? 's' : ''}.
         </p>
       )}

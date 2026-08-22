@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { Plus, Loader2, CalendarClock } from 'lucide-react';
 import {
-  CATEGORY_BY_KEY, ContentEntry, ContentRequest,
+  ContentEntry, ContentRequest, FolderDef,
   REQUEST_STATUS_LABELS, REQUEST_STATUS_STYLES,
-  formatDay, isActionable, progressOf,
+  defByKey, formatDay, isActionable, progressOf,
 } from '@/lib/contenu';
 import { NumberInput } from '@/components/compta/ui';
 
@@ -19,11 +19,13 @@ import { NumberInput } from '@/components/compta/ui';
 export default function ModelRequests({
   requests,
   entries,
+  folders,
   busy,
   onDeliver,
 }: {
   requests: ContentRequest[];
   entries: ContentEntry[];
+  folders: FolderDef[];
   busy: boolean;
   onDeliver: (request: ContentRequest, count: number) => void;
 }) {
@@ -57,7 +59,9 @@ export default function ModelRequests({
       <div className="divide-y divide-[#161616]">
         {open.map((p) => {
           const r = p.request;
-          const cat = CATEGORY_BY_KEY[r.category];
+          // Une demande personnalisée ne vise aucun dossier : son intitulé
+          // libre tient lieu de titre.
+          const title = r.customLabel || defByKey(folders, r.category).label;
           const st = REQUEST_STATUS_STYLES[p.effective];
           const count = counts[r.id] ?? 1;
 
@@ -66,7 +70,12 @@ export default function ModelRequests({
               <div className="flex flex-wrap items-start gap-3">
                 <div className="flex-1 min-w-48">
                   <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                    <span className="text-sm text-white">{cat?.label ?? r.category}</span>
+                    <span className="text-sm text-white">{title}</span>
+                    {r.customLabel && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[#C9A84C]/15 text-[#C9A84C] border border-[#C9A84C]/25">
+                        PERSONNALISÉE
+                      </span>
+                    )}
                     {r.priority === 'urgente' && (
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-red-500/15 text-red-300 border border-red-500/25">
                         URGENT

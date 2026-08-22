@@ -4,14 +4,14 @@ import { useState } from 'react';
 import { ExternalLink, Plus, X, Check, Link2, Loader2, HardDrive } from 'lucide-react';
 import { Model } from '@/lib/data';
 import {
-  CategoryStat, ContentCategory, ContentEntry,
+  CategoryStat, ContentCategory, ContentEntry, FolderDef,
   formatDay, statsFor,
 } from '@/lib/contenu';
 import { NumberInput } from '@/components/compta/ui';
 
 /**
- * Une carte par modèle : les 8 catégories du Drive, le nombre déposé sur le
- * mois affiché, et le bouton d'ajout.
+ * Une carte par modèle : ses dossiers Drive, le nombre déposé sur le mois
+ * affiché, et le bouton d'ajout.
  *
  * La même carte sert à l'agence et à la créatrice. Côté créatrice, les
  * nouveautés ne sont pas mises en évidence (elles le sont pour celui qui doit
@@ -20,6 +20,7 @@ import { NumberInput } from '@/components/compta/ui';
 export default function ContentCard({
   model,
   entries,
+  folders,
   month,
   mode,
   busy,
@@ -30,6 +31,7 @@ export default function ContentCard({
 }: {
   model: Model;
   entries: ContentEntry[];
+  folders: FolderDef[];
   month: string;
   mode: 'agence' | 'modele';
   busy: boolean;
@@ -42,7 +44,7 @@ export default function ContentCard({
   const [editingDrive, setEditingDrive] = useState(false);
   const [driveDraft, setDriveDraft] = useState(model.driveLink ?? '');
 
-  const stats = statsFor(entries, month);
+  const stats = statsFor(entries, month, folders);
   const isAgency = mode === 'agence';
   const unseenIds = isAgency
     ? entries.filter((e) => !e.seen && e.addedAt.slice(0, 7) === month).map((e) => e.id)
@@ -172,6 +174,14 @@ function CategoryRow({
   onDelete: (entry: ContentEntry) => void;
 }) {
   const { category, entriesInMonth, total, lastAddedAt, unseen } = stat;
+  const [expanded, setExpanded] = useState(false);
+
+  // Une créatrice active dépose des dizaines de fichiers par mois : tout
+  // afficher transforme la ligne en pavé et oblige à scroller pour atteindre la
+  // catégorie suivante. On montre les derniers, le reste au clic.
+  const MAX_VISIBLE = 12;
+  const overflow = entriesInMonth.length - MAX_VISIBLE;
+  const shown = expanded ? entriesInMonth : entriesInMonth.slice(-MAX_VISIBLE);
 
   return (
     <div className="flex flex-wrap items-center gap-3 px-5 py-3 hover:bg-[#141414] transition">
@@ -199,7 +209,7 @@ function CategoryRow({
         {entriesInMonth.length === 0 ? (
           <span className="text-[11px] text-[#333]">—</span>
         ) : (
-          entriesInMonth.map((e) => (
+          shown.map((e) => (
             <span
               key={e.id}
               title={[
@@ -228,6 +238,22 @@ function CategoryRow({
               </button>
             </span>
           ))
+        )}
+        {!expanded && overflow > 0 && (
+          <button
+            onClick={() => setExpanded(true)}
+            className="px-2 py-0.5 rounded-md text-[11px] border border-[#222] text-[#666] hover:text-white hover:border-[#333] transition"
+          >
+            +{overflow} autres
+          </button>
+        )}
+        {expanded && overflow > 0 && (
+          <button
+            onClick={() => setExpanded(false)}
+            className="px-2 py-0.5 rounded-md text-[11px] border border-[#222] text-[#666] hover:text-white hover:border-[#333] transition"
+          >
+            Replier
+          </button>
         )}
       </div>
 

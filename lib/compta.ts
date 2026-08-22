@@ -41,6 +41,11 @@ export interface ModelBilling {
    * plateforme. Vide = on retombe sur la devise par défaut de la plateforme.
    */
   payoutCurrency: Currency | '';
+  /** Identifiant de la créatrice sur chaque plateforme. */
+  usernames: Partial<Record<Platform, string>>;
+  /** AAAA-MM-JJ. Vide si non renseignée. */
+  birthDate: string;
+  birthPlace: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -57,6 +62,9 @@ export function emptyBilling(modelId: string, fullName = ''): ModelBilling {
     modelId,
     commissionRates: {},
     payoutCurrency: '',
+    usernames: {},
+    birthDate: '',
+    birthPlace: '',
     firstName: parts[0] ?? '',
     lastName: parts.slice(1).join(' '),
     email: '',
@@ -158,6 +166,12 @@ function rowToBilling(r: Row): ModelBilling {
     payoutCurrency: (CURRENCIES as readonly string[]).includes(str(r.payout_currency))
       ? (str(r.payout_currency) as Currency)
       : '',
+    usernames:
+      r.usernames && typeof r.usernames === 'object'
+        ? (r.usernames as Partial<Record<Platform, string>>)
+        : {},
+    birthDate: str(r.birth_date).slice(0, 10),
+    birthPlace: str(r.birth_place),
     firstName: str(r.first_name),
     lastName: str(r.last_name),
     email: str(r.email),
@@ -174,6 +188,9 @@ function billingToRow(b: ModelBilling): Row {
     model_id: b.modelId,
     commission_rates: b.commissionRates ?? {},
     payout_currency: b.payoutCurrency ?? '',
+    usernames: b.usernames ?? {},
+    birth_date: b.birthDate ?? '',
+    birth_place: (b.birthPlace ?? '').trim(),
     first_name: b.firstName.trim(),
     last_name: b.lastName.trim(),
     email: b.email.trim(),

@@ -1,15 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Users, ClipboardCheck, Wallet, Building2, Banknote } from 'lucide-react';
-import BillingTab from '@/components/compta/BillingTab';
+import { ClipboardCheck, Wallet, Building2, Banknote } from 'lucide-react';
 import ValidationTab from '@/components/compta/ValidationTab';
 import DeclarationTab from '@/components/compta/DeclarationTab';
 import AgencyTab from '@/components/compta/AgencyTab';
 import PaymentsTab from '@/components/compta/PaymentsTab';
 import { useAuth } from '@/contexts/AuthContext';
 
-type TabId = 'fiches' | 'validation' | 'paiements' | 'agence' | 'declaration';
+type TabId = 'validation' | 'paiements' | 'agence' | 'declaration';
 
 export default function ComptaPage() {
   const { user } = useAuth();
@@ -22,7 +21,6 @@ export default function ComptaPage() {
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = isAgency
     ? [
-        { id: 'fiches', label: 'Fiches modèles', icon: Users },
         { id: 'validation', label: 'Déclarations', icon: ClipboardCheck },
         ...(isAdmin ? [{ id: 'paiements' as TabId, label: 'Paiements', icon: Banknote }] : []),
         { id: 'agence', label: 'Agence', icon: Building2 },
@@ -52,7 +50,7 @@ export default function ComptaPage() {
         </h1>
         <p className="text-[#888] text-sm">
           {isAgency
-            ? 'Fiches de facturation, montants déclarés et validation des commissions.'
+            ? 'Montants déclarés, validation des commissions et suivi des encaissements.'
             : 'Déclare le montant que tu as reçu sur chaque période.'}
         </p>
       </div>
@@ -76,7 +74,6 @@ export default function ComptaPage() {
         </div>
       )}
 
-      {activeTab === 'fiches' && <BillingTab />}
       {activeTab === 'validation' && <ValidationTab />}
       {activeTab === 'paiements' && isAdmin && <PaymentsTab />}
       {activeTab === 'agence' && <AgencyTab />}

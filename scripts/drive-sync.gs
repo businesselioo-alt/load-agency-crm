@@ -15,7 +15,7 @@
  * ── Configuration ───────────────────────────────────────────────────────────
  */
 
-var CRM_URL = 'https://TON-APP.vercel.app'; // sans slash final
+var CRM_URL = 'https://load-agency-crm.vercel.app'; // sans slash final
 var SECRET = 'COLLE_ICI_LE_MEME_SECRET_QUE_DANS_VERCEL';
 
 /** Nombre de jours d'historique repris au tout premier passage. */
@@ -42,17 +42,48 @@ var OVERLAP_MINUTES = 15;
  *
  * ── Ce que le script attend de ton Drive ────────────────────────────────────
  *
- * Le dossier de chaque créatrice contient des sous-dossiers dont le nom
- * COMMENCE par le numéro de la catégorie :
+ * Tous les sous-dossiers du dossier racine sont repris tels quels : leur nom
+ * devient une catégorie dans le CRM. Rien à renommer, rien à déclarer.
  *
- *   1- SCRIPTS   2- FEED POSTS   3- DRESSED PICS   4- NUDE PICS
- *   5- NUDE VIDS   6 - COLLAB / ANAL   7- FEET CONTENT   8-MARKETING CLIPS
+ * Le chiffre de tête, quand il existe (« 4- NUDE PICS »), sert uniquement à
+ * l'ordre d'affichage et à faire correspondre « le dossier 4 » d'une créatrice
+ * à l'autre. Un dossier sans numéro apparaît quand même, en fin de liste.
  *
- * Seul le chiffre de tête compte : « 4- NUDE PICS », « 4 - Nude pics » et
- * « 4_nudes » sont traités pareil. Un sous-dossier sans numéro est ignoré.
- * Les fichiers doivent être posés directement dans ces dossiers ; le script
- * descend d'un niveau supplémentaire au maximum.
+ * Les fichiers doivent être posés dans ces dossiers ; le script descend d'un
+ * niveau supplémentaire au maximum, et rattache alors le fichier au dossier
+ * de catégorie parent.
  */
+
+/**
+ * À exécuter en premier, une seule fois.
+ *
+ * Volontairement SANS try/catch : c'est l'exception non capturée qui déclenche
+ * l'écran d'autorisation de Google. Les autres fonctions attrapent leurs
+ * erreurs pour ne pas interrompre la synchronisation, ce qui a l'effet de bord
+ * d'empêcher Google de demander les accès manquants.
+ *
+ * On touche les deux services — réseau et Drive — pour que les deux
+ * autorisations soient demandées d'un coup.
+ */
+function autoriser() {
+  var res = UrlFetchApp.fetch(CRM_URL + '/api/content/ingest', {
+    method: 'get',
+    headers: { 'x-ingest-secret': SECRET },
+    muteHttpExceptions: true,
+  });
+  var code = res.getResponseCode();
+  DriveApp.getRootFolder().getName();
+
+  Logger.log('Autorisations accordées.');
+  Logger.log('Réponse du CRM : ' + code);
+  if (code === 200) {
+    Logger.log('Le secret est bon. Tu peux lancer testConnection.');
+  } else if (code === 401) {
+    Logger.log('ATTENTION : secret refusé. Vérifie la variable SECRET en haut du script.');
+  } else {
+    Logger.log('Réponse inattendue : ' + res.getContentText());
+  }
+}
 
 function syncDrive() {
   var started = Date.now();
@@ -134,34 +165,56 @@ function syncOneModel(target, props) {
   var sinceDate = new Date(since);
   sinceDate.setMinutes(sinceDate.getMinutes() - OVERLAP_MINUTES);
 
+  // On recopie l'arborescence telle quelle : le CRM n'impose aucune liste de
+  // catégories, il affiche les dossiers réels de la créatrice.
+  var folders = [];
   var found = [];
   var subs = root.getFolders();
-  while (subs.hasNext() && found.length < MAX_FILES_PER_RUN) {
+  while (subs.hasNext()) {
     var sub = subs.next();
-    var category = categoryFromFolderName(sub.getName());
-    if (!category) continue;
-    collectFiles(sub, category, sinceDate, found, 0);
+    folders.push({
+      folderId: sub.getId(),
+      name: sub.getName(),
+      position: positionFromFolderName(sub.getName()),
+    });
+    if (found.length < MAX_FILES_PER_RUN) {
+      collectFiles(sub, sub.getId(), sinceDate, found, 0);
+    }
   }
 
-  if (found.length === 0) return target.name + ' : rien de nouveau.';
+  folders.sort(function (a, b) {
+    return a.position - b.position;
+  });
+
+  if (found.length === 0) {
+    // Même sans nouveau fichier, on transmet l'arborescence : un dossier créé
+    // ou renommé doit apparaître dans le CRM sans attendre un dépôt.
+    postFiles(target.modelId, folders, []);
+    return target.name + ' : rien de nouveau (' + folders.length + ' dossiers).';
+  }
 
   found.sort(function (a, b) {
     return a.createdAt < b.createdAt ? -1 : 1;
   });
   var batch = found.slice(0, MAX_FILES_PER_RUN);
 
-  var result = postFiles(target.modelId, batch);
+  var result = postFiles(target.modelId, folders, batch);
   if (!result) return target.name + " : l'envoi au CRM a échoué, curseur inchangé.";
 
   // Le curseur n'avance que sur ce qui a été effectivement transmis.
   props.setProperty(cursorKey, batch[batch.length - 1].createdAt);
 
-  return target.name + ' : ' + result.inserted + ' ajouté(s), ' + result.skipped + ' déjà connu(s)'
+  return target.name + ' : ' + result.inserted + ' ajouté(s), ' + result.skipped + ' déjà connu(s), '
+    + folders.length + ' dossiers'
     + (found.length > batch.length ? ', reste ' + (found.length - batch.length) + ' au prochain passage.' : '.');
 }
 
-/** Un seul niveau de sous-dossier sous la catégorie, pour éviter les boucles. */
-function collectFiles(folder, category, sinceDate, out, depth) {
+/**
+ * Un seul niveau de sous-dossier sous la catégorie, pour éviter les boucles.
+ * `folderKey` est l'identifiant Drive du dossier de catégorie : les fichiers
+ * rangés dans un sous-sous-dossier restent rattachés à la catégorie parente.
+ */
+function collectFiles(folder, folderKey, sinceDate, out, depth) {
   var files = folder.getFiles();
   while (files.hasNext() && out.length < MAX_FILES_PER_RUN) {
     var f = files.next();
@@ -170,41 +223,36 @@ function collectFiles(folder, category, sinceDate, out, depth) {
     out.push({
       driveFileId: f.getId(),
       name: f.getName(),
-      category: category,
+      category: folderKey,
       createdAt: created.toISOString(),
     });
   }
   if (depth >= 1) return;
   var subs = folder.getFolders();
   while (subs.hasNext() && out.length < MAX_FILES_PER_RUN) {
-    collectFiles(subs.next(), category, sinceDate, out, depth + 1);
+    collectFiles(subs.next(), folderKey, sinceDate, out, depth + 1);
   }
 }
 
-var CATEGORY_BY_INDEX = {
-  1: 'scripts',
-  2: 'feed',
-  3: 'dressed_pics',
-  4: 'nude_pics',
-  5: 'nude_vids',
-  6: 'collab',
-  7: 'feet',
-  8: 'marketing',
-};
-
-function categoryFromFolderName(name) {
+/**
+ * Le chiffre de tête du dossier, ou 999 s'il n'y en a pas.
+ *
+ * Ce numéro n'identifie pas le dossier — c'est l'identifiant Drive qui le fait.
+ * Il sert uniquement à l'ordre d'affichage et à faire correspondre « le dossier
+ * 4 » d'une créatrice à l'autre quand l'agence adresse une demande groupée.
+ */
+function positionFromFolderName(name) {
   var m = String(name).match(/^\s*(\d+)/);
-  if (!m) return null;
-  return CATEGORY_BY_INDEX[parseInt(m[1], 10)] || null;
+  return m ? parseInt(m[1], 10) : 999;
 }
 
-function postFiles(modelId, files) {
+function postFiles(modelId, folders, files) {
   try {
     var res = UrlFetchApp.fetch(CRM_URL + '/api/content/ingest', {
       method: 'post',
       contentType: 'application/json',
       headers: { 'x-ingest-secret': SECRET },
-      payload: JSON.stringify({ modelId: modelId, files: files }),
+      payload: JSON.stringify({ modelId: modelId, folders: folders, files: files }),
       muteHttpExceptions: true,
     });
     if (res.getResponseCode() !== 200) {

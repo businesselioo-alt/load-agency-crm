@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { CATEGORIES, ContentCategory } from '@/lib/contenu';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -83,8 +82,6 @@ function folderIdFrom(link: string): string {
   return /^[A-Za-z0-9_-]{10,}$/.test(link.trim()) ? link.trim() : '';
 }
 
-const VALID_CATEGORIES = new Set<string>(CATEGORIES.map((c) => c.key));
-
 /**
  * GET — la liste des dossiers à surveiller.
  *
@@ -109,17 +106,50 @@ export async function GET(req: Request) {
     }))
     .filter((t) => t.folderId);
 
-  return NextResponse.json({
-    targets,
-    categories: CATEGORIES.map((c, i) => ({ index: i + 1, key: c.key, label: c.label })),
-  });
+  return NextResponse.json({ targets });
 }
 
 interface IncomingFile {
   driveFileId?: string;
   name?: string;
+  /** Identifiant Drive du dossier qui contient le fichier. */
   category?: string;
   createdAt?: string;
+}
+
+interface IncomingFolder {
+  folderId?: string;
+  name?: string;
+  position?: number;
+}
+
+/**
+ * Recopie l'arborescence de la créatrice.
+ *
+ * Le CRM n'invente aucune catégorie : la liste des dossiers vient du Drive et
+ * est rafraîchie à chaque passage. Un dossier renommé garde son identifiant,
+ * donc l'historique des dépôts le suit.
+ */
+async function syncFolders(
+  db: NonNullable<ReturnType<typeof serverClient>>,
+  modelId: string,
+  folders: IncomingFolder[],
+): Promise<string | null> {
+  const rows = folders
+    .filter((f) => (f.folderId ?? '').trim())
+    .map((f) => ({
+      model_id: modelId,
+      folder_id: (f.folderId as string).trim(),
+      name: (f.name ?? '').slice(0, 200),
+      position: typeof f.position === 'number' && f.position > 0 ? f.position : 999,
+      updated_at: new Date().toISOString(),
+    }));
+  if (rows.length === 0) return null;
+
+  const { error } = await db
+    .from('crm_model_folder')
+    .upsert(rows, { onConflict: 'model_id,folder_id' });
+  return error ? error.message : null;
 }
 
 /**
@@ -167,7 +197,7 @@ export async function POST(req: Request) {
   const db = serverClient();
   if (!db) return NextResponse.json({ error: 'Supabase non configuré.' }, { status: 501 });
 
-  let payload: { modelId?: string; files?: IncomingFile[] };
+  let payload: { modelId?: string; files?: IncomingFile[]; folders?: IncomingFolder[] };
   try {
     payload = await req.json();
   } catch {
@@ -177,7 +207,13 @@ export async function POST(req: Request) {
   const modelId = (payload.modelId ?? '').trim();
   const files = Array.isArray(payload.files) ? payload.files.slice(0, 300) : [];
   if (!modelId) return NextResponse.json({ error: 'modelId manquant.' }, { status: 400 });
-  if (files.length === 0) return NextResponse.json({ inserted: 0, skipped: 0, entries: [] });
+
+  const folderError = await syncFolders(db, modelId, payload.folders ?? []);
+  if (folderError) return NextResponse.json({ error: folderError }, { status: 500 });
+
+  if (files.length === 0) {
+    return NextResponse.json({ inserted: 0, skipped: 0, folders: (payload.folders ?? []).length, entries: [] });
+  }
 
   // Fichiers déjà connus : on ne relit pas la contrainte d'unicité par erreur,
   // on filtre avant pour pouvoir renvoyer un décompte honnête au script.
@@ -198,7 +234,7 @@ export async function POST(req: Request) {
   for (const f of files) {
     const driveFileId = (f.driveFileId ?? '').trim();
     const category = (f.category ?? '').trim();
-    if (!driveFileId || !VALID_CATEGORIES.has(category) || seen.has(driveFileId)) {
+    if (!driveFileId || !category || seen.has(driveFileId)) {
       skipped += 1;
       continue;
     }
@@ -220,7 +256,7 @@ export async function POST(req: Request) {
 
     const { error } = await db.from('crm_content_log').insert({
       model_id: modelId,
-      category: category as ContentCategory,
+      category,
       seq,
       label: (f.name ?? '').slice(0, 200),
       added_at: (f.createdAt ?? new Date().toISOString()).slice(0, 10),
@@ -249,5 +285,10 @@ export async function POST(req: Request) {
     created.push({ category, seq, name: f.name ?? '' });
   }
 
-  return NextResponse.json({ inserted, skipped, entries: created });
+  return NextResponse.json({
+    inserted,
+    skipped,
+    folders: (payload.folders ?? []).length,
+    entries: created,
+  });
 }

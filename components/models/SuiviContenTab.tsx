@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Bell } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { Model } from '@/lib/data';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -9,10 +9,11 @@ import {
   recentPeriods, safeLoadModels,
 } from '@/lib/compta';
 import {
-  ContentCategory, ContentEntry, ContentRequest,
-  addEntry, deleteEntry, entryTitle, loadEntries, loadRequests, markSeen, saveDriveLink,
+  ContentCategory, ContentEntry, ContentRequest, ModelFolder,
+  CUSTOM_KEY, addEntry, deleteEntry, entryTitle, foldersFor,
+  loadEntries, loadFolders, loadRequests, markSeen, saveDriveLink,
 } from '@/lib/contenu';
-import { Banner, EmptyState, TextInput } from '@/components/compta/ui';
+import { Banner, EmptyState } from '@/components/compta/ui';
 import ContentCard from './ContentCard';
 import ModelRequests from './ModelRequests';
 
@@ -30,24 +31,28 @@ export default function SuiviContenTab() {
   const [me, setMe] = useState<Model | null>(null);
   const [entries, setEntries] = useState<ContentEntry[]>([]);
   const [requests, setRequests] = useState<ContentRequest[]>([]);
+  const [folders, setFolders] = useState<ModelFolder[]>([]);
   const [month, setMonth] = useState(currentPeriod());
-  const [query, setQuery] = useState('');
+  const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
-      const [m, billing, e, r] = await Promise.all([
+      const [m, billing, e, r, f] = await Promise.all([
         safeLoadModels(),
         loadAllBilling(),
         loadEntries(),
         loadRequests(),
+        loadFolders(),
       ]);
       setModels(m);
       setMe(findModelForUser(m, billing, user));
       setEntries(e);
       setRequests(r);
+      setFolders(f);
+      setSelectedId((prev) => prev || m[0]?.id || '');
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,17 +60,35 @@ export default function SuiviContenTab() {
 
   const periods = useMemo(() => recentPeriods(12, new Date()), []);
 
-  const visibleModels = useMemo(() => {
-    if (isModel) return me ? [me] : [];
-    const q = query.trim().toLowerCase();
-    return models.filter(
-      (m) => !q || m.name.toLowerCase().includes(q) || (m.pseudo ?? '').toLowerCase().includes(q),
-    );
-  }, [isModel, me, models, query]);
+  /**
+   * Une seule créatrice à l'écran.
+   *
+   * Empiler toutes les cartes obligeait à scroller pour atteindre la dixième —
+   * et chaque carte fait huit lignes. Le sélecteur remplace le défilement, et
+   * les pastilles signalent qui a du nouveau sans qu'on ait à ouvrir sa carte.
+   */
+  const selected = useMemo(
+    () => (isModel ? me : models.find((m) => m.id === selectedId) ?? models[0] ?? null),
+    [isModel, me, models, selectedId],
+  );
 
   const unseen = useMemo(
     () => (isModel ? [] : entries.filter((e) => !e.seen && e.addedAt.slice(0, 7) === month)),
     [entries, isModel, month],
+  );
+
+  /** Nombre de nouveautés par créatrice, pour les pastilles du sélecteur. */
+  const unseenByModel = useMemo(() => {
+    const out: Record<string, number> = {};
+    unseen.forEach((e) => {
+      out[e.modelId] = (out[e.modelId] ?? 0) + 1;
+    });
+    return out;
+  }, [unseen]);
+
+  const selectedFolders = useMemo(
+    () => (selected ? foldersFor(selected.id, folders, entries) : []),
+    [selected, folders, entries],
   );
 
   const add = async (
@@ -73,6 +96,7 @@ export default function SuiviContenTab() {
     category: ContentCategory,
     count: number,
     requestId?: string,
+    label?: string,
   ) => {
     setBusy(true);
     setError(null);
@@ -85,6 +109,7 @@ export default function SuiviContenTab() {
         category,
         addedBy: user?.name ?? '',
         requestId,
+        label,
       });
       if (!res.ok) {
         setError(res.error);
@@ -156,18 +181,38 @@ export default function SuiviContenTab() {
           ))}
         </select>
 
-        {!isModel && (
-          <div className="relative flex-1 min-w-48 max-w-xs">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#444] z-10" />
-            <TextInput
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Rechercher une créatrice"
-              className="!pl-9"
-            />
-          </div>
-        )}
       </div>
+
+      {!isModel && models.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {models.map((m) => {
+            const on = selected?.id === m.id;
+            const n = unseenByModel[m.id] ?? 0;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setSelectedId(m.id)}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm border transition ${
+                  on
+                    ? 'bg-[#C9A84C] border-[#C9A84C] text-black font-medium'
+                    : 'bg-[#111] border-[#222] text-[#777] hover:text-white hover:border-[#333]'
+                }`}
+              >
+                {m.name}
+                {n > 0 && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold ${
+                      on ? 'bg-black/20 text-black' : 'bg-[#C9A84C]/20 text-[#C9A84C]'
+                    }`}
+                  >
+                    {n}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {!isModel && unseen.length > 0 && (
         <div className="flex gap-2 px-4 py-3 rounded-xl border border-[#C9A84C]/25 bg-[#C9A84C]/10 text-sm text-[#C9A84C]">
@@ -179,7 +224,13 @@ export default function SuiviContenTab() {
             </p>
             <p className="text-[11px] text-[#C9A84C]/70 mt-0.5">
               {recent
-                .map((e) => `${models.find((m) => m.id === e.modelId)?.name ?? '?'} · ${entryTitle(e)}`)
+                .map(
+                  (e) =>
+                    `${models.find((m) => m.id === e.modelId)?.name ?? '?'} · ${entryTitle(
+                      e,
+                      foldersFor(e.modelId, folders, entries),
+                    )}`,
+                )
                 .join(' — ')}
               {unseen.length > recent.length ? ' …' : ''}
             </p>
@@ -193,12 +244,15 @@ export default function SuiviContenTab() {
         <ModelRequests
           requests={requests.filter((r) => r.modelId === me.id)}
           entries={entries.filter((e) => e.modelId === me.id)}
+          folders={selectedFolders}
           busy={busy}
-          onDeliver={(r, count) => add(me, r.category, count, r.id)}
+          onDeliver={(r, count) =>
+            add(me, r.customLabel ? CUSTOM_KEY : r.category, count, r.id, r.customLabel)
+          }
         />
       )}
 
-      {visibleModels.length === 0 ? (
+      {!selected ? (
         <EmptyState
           title={isModel ? 'Aucune fiche associée à ton compte' : 'Aucune créatrice'}
           subtitle={
@@ -208,26 +262,25 @@ export default function SuiviContenTab() {
           }
         />
       ) : (
-        <div className="space-y-4">
-          {visibleModels.map((m) => (
-            <ContentCard
-              key={m.id}
-              model={m}
-              entries={entries.filter((e) => e.modelId === m.id)}
-              month={month}
-              mode={isModel ? 'modele' : 'agence'}
-              busy={busy}
-              onAdd={(category, count) => add(m, category, count)}
-              onDelete={remove}
-              onMarkSeen={see}
-              onSaveDrive={(url) => drive(m, url)}
-            />
-          ))}
-        </div>
+        <ContentCard
+          key={selected.id}
+          model={selected}
+          entries={entries.filter((e) => e.modelId === selected.id)}
+          folders={selectedFolders}
+          month={month}
+          mode={isModel ? 'modele' : 'agence'}
+          busy={busy}
+          onAdd={(category, count) => add(selected, category, count)}
+          onDelete={remove}
+          onMarkSeen={see}
+          onSaveDrive={(url) => drive(selected, url)}
+        />
       )}
 
       <p className="text-[11px] text-[#444] leading-relaxed">
-        Le fichier reste sur le Drive. Ici on note seulement qu&apos;il a été déposé : la créatrice
+        Les catégories sont les dossiers réels du Drive de la créatrice, remontés par la
+        synchronisation — renomme ou ajoute un dossier sur le Drive, il apparaît ici au passage
+        suivant. Le fichier reste sur le Drive. Ici on note seulement qu&apos;il a été déposé : la créatrice
         clique sur « Ajouter » dans la bonne catégorie, le CRM attribue le numéro suivant, et
         l&apos;agence voit la nouveauté en doré tant qu&apos;elle ne l&apos;a pas marquée comme vue.
       </p>

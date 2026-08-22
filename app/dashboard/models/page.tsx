@@ -1,21 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { BarChart2, BookOpen, ClipboardList } from 'lucide-react';
+import { BarChart2, BookOpen, ClipboardList, Users } from 'lucide-react';
+import ModelsTab from '@/components/models/ModelsTab';
 import SuiviContenTab from '@/components/models/SuiviContenTab';
 import RequestsTab from '@/components/models/RequestsTab';
 import ResourcesTab from '@/components/models/ResourcesTab';
 import { useAuth } from '@/contexts/AuthContext';
 
-type TabId = 'suivi' | 'demandes' | 'ressources';
+type TabId = 'modeles' | 'suivi' | 'demandes' | 'ressources';
 
 export default function ManagementPage() {
   const { user } = useAuth();
   const isModel = user?.role === 'model';
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = isModel
-    ? [{ id: 'suivi', label: 'Mon contenu', icon: BarChart2 }]
+    ? [
+        { id: 'suivi', label: 'Mon contenu', icon: BarChart2 },
+        { id: 'ressources', label: 'Ressources', icon: BookOpen },
+      ]
     : [
+        { id: 'modeles', label: 'Modèles', icon: Users },
         { id: 'suivi', label: 'Suivi Contenu', icon: BarChart2 },
         { id: 'demandes', label: 'Demandes', icon: ClipboardList },
         { id: 'ressources', label: 'Ressources', icon: BookOpen },
@@ -31,7 +36,7 @@ export default function ManagementPage() {
         </h1>
         <p className="text-[#888] text-sm">
           {isModel
-            ? 'Note ici ce que tu déposes sur le Drive, catégorie par catégorie.'
+            ? 'Note ce que tu déposes sur le Drive, et retrouve les ressources de l’agence.'
             : 'Suivi du contenu et ressources des créatrices.'}
         </p>
       </div>
@@ -55,6 +60,7 @@ export default function ManagementPage() {
         </div>
       )}
 
+      {activeTab === 'modeles' && <ModelsTab />}
       {activeTab === 'suivi' && <SuiviContenTab />}
       {activeTab === 'demandes' && <RequestsTab />}
       {activeTab === 'ressources' && <ResourcesTab />}
